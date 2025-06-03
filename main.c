@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 typedef struct {
     int width;
@@ -90,6 +94,11 @@ unsigned char clamp(int val) {
     return (unsigned char)val;
 }
 
+int kernel[3][3] = {
+    {-1, -1, -1},
+    {-1,  8, -1},
+    {-1, -1, -1}
+};
 void convolve(PPMImage* input, PPMImage* output, int kernel[3][3]) {
     int w = input->width;
     int h = input->height;
@@ -118,29 +127,68 @@ void convolve(PPMImage* input, PPMImage* output, int kernel[3][3]) {
     }
 }
 
+
+void HandlePNG(const char* input_png, const char* output_png) {
+    int width, height, channels;
+    // Load PNG image using stb_image
+    unsigned char* img = stbi_load(input_png, &width, &height, &channels, 3); // Force RGB (3 channels)
+    if (!img) {
+        fprintf(stderr, "Failed to load PNG: %s\n", stbi_failure_reason());
+        exit(1);
+    }
+
+    PPMImage *ppm_img = (PPMImage*)malloc(sizeof(PPMImage));
+    if (!ppm_img) exit(1);
+    ppm_img->width = width;
+    ppm_img->height = height;
+    ppm_img->max_val = 255;
+    ppm_img->data = img;
+
+    PPMImage *out = (PPMImage*)malloc(sizeof(PPMImage));
+    if (!out) exit(1);
+    out->width = width;
+    out->height = height;
+    out->max_val = 255;
+    out->data = (unsigned char*)malloc(width * height * 3); // Allocate memory for output image
+
+    convolve(ppm_img, out, kernel);
+
+    if (!stbi_write_png(output_png, out->width, out->height, 3, out->data, out->width * 3)) {
+        fprintf(stderr, "Failed to write PNG: %s\n", stbi_failure_reason());
+        exit(1);
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        printf("Usage: %s input.ppm output.ppm\n", argv[0]);
+        printf("Usage: %s <input image> <output image>\n", argv[0]);
         return 1;
     }
 
-    PPMImage* img = read_ppm(argv[1]);
-    if (!img) return 1;
+    const char* extension = strrchr(argv[1], '.');
 
-    PPMImage* out = read_ppm(argv[1]);
+    if (strcmp(extension, ".ppm") == 0) {
 
-    int kernel[3][3] = {
-        {-1, -1, -1},
-        {-1,  8, -1},
-        {-1, -1, -1}
-    };
-    convolve(img, out, kernel);
-    write_ppm(argv[2], out);
-
-    free(img->data);
-    free(img);
-    free(out->data);
-    free(out);
+        PPMImage* img = read_ppm(argv[1]);
+        if (!img) return 1;
+        PPMImage *out = (PPMImage*)malloc(sizeof(PPMImage));
+        if (!out) return 1;
+        out->width = img->width;
+        out->height = img->height;
+        out->max_val = 255;
+        out->data = (unsigned char*)malloc(img->width * img->height * 3); // Allocate memory for output image
+        if (!out->data) return 1;
+        convolve(img, out, kernel);
+        write_ppm(argv[2], out);
+    }
+    else if (strcmp(extension, ".png") == 0) 
+    {
+        HandlePNG(argv[1], argv[2]);
+    }
+    else {
+        printf("Unsupported file format: %s\n", extension);
+        return 1;
+    }
 
     printf("Convolution applied and saved to %s\n", argv[2]);
     return 0;

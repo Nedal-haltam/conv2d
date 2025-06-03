@@ -1,15 +1,10 @@
 
 
-ARGS= .\image.ppm .\output.ppm
-
-all: build run
-
-build: main.c png2ppm.c
-	gcc png2ppm.c -Wall -Wextra -Wpedantic -o png2ppm.exe
+build: main.c
 	gcc main.c -Wall -Wextra -Wpedantic -o conv.exe
 
-run: conv.exe
-	.\conv.exe $(ARGS)
-
-clean:
-	del /Q conv.exe 2>nul || exit 0
+run:
+	./conv.exe ./lena.png ./edge_lena.png
+	./conv.exe ./lena.ppm ./edge_lena.ppm
+	./conv.exe ./tree.png ./edge_tree.png
+	./conv.exe ./tree.ppm ./edge_tree.ppm
