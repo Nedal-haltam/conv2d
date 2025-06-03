@@ -16,15 +16,18 @@ This is a simple C program that reads a binary P6 PPM image, applies a 3x3 convo
 Ensure you have `make` and a C compiler installed. Then run:
 
 ```bash
-make
+make build
 ```
 
-This compiles `main.c` and generates an executable named `convolve`.
+This compiles `main.c` and generates an executable named `conv`.
 
 ### Run
-
 ```bash
-./convolve input.ppm output.ppm
+make run
+```
+or
+```bash
+./conv input.ppm output.ppm
 ```
 
 * `input.ppm`: Path to the source image (must be in binary P6 format).
@@ -35,7 +38,7 @@ This compiles `main.c` and generates an executable named `convolve`.
 Apply edge detection to an image:
 
 ```bash
-./convolve lena.ppm edges.ppm
+./conv lena.ppm edges.ppm
 ```
 
 ## Convolution Kernel
