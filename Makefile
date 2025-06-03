@@ -4,7 +4,8 @@ ARGS= .\image.ppm .\output.ppm
 
 all: build run
 
-build: main.c
+build: main.c png2ppm.c
+	gcc png2ppm.c -Wall -Wextra -Wpedantic -o png2ppm.exe
 	gcc main.c -Wall -Wextra -Wpedantic -o conv.exe
 
 run: conv.exe
