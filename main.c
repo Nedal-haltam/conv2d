@@ -99,7 +99,7 @@ int kernel[3][3] = {
     {-1,  8, -1},
     {-1, -1, -1}
 };
-void convolve(PPMImage* input, PPMImage* output, int kernel[3][3]) {
+void convolve(PPMImage* input, PPMImage* output) {
     int w = input->width;
     int h = input->height;
     for (int y = 0; y < h; y++) {
@@ -151,7 +151,7 @@ void HandlePNG(const char* input_png, const char* output_png) {
     out->max_val = 255;
     out->data = (unsigned char*)malloc(width * height * 3); // Allocate memory for output image
 
-    convolve(ppm_img, out, kernel);
+    convolve(ppm_img, out);
 
     if (!stbi_write_png(output_png, out->width, out->height, 3, out->data, out->width * 3)) {
         fprintf(stderr, "Failed to write PNG: %s\n", stbi_failure_reason());
@@ -178,7 +178,7 @@ int main(int argc, char* argv[]) {
         out->max_val = 255;
         out->data = (unsigned char*)malloc(img->width * img->height * 3); // Allocate memory for output image
         if (!out->data) return 1;
-        convolve(img, out, kernel);
+        convolve(img, out);
         write_ppm(argv[2], out);
     }
     else if (strcmp(extension, ".png") == 0) 

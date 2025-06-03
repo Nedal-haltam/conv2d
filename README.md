@@ -1,13 +1,14 @@
 # PPM Image Convolution Tool
 
-This is a simple C program that reads a binary P6 PPM image, applies a 3x3 convolution kernel to it (e.g., edge detection), and writes the resulting image back in PPM format.
+This is a simple C program that reads an image, applies a 3x3 convolution kernel to it (e.g., edge detection), and writes the resulting image back the input format.
 
 ## Features
 
-* Supports binary P6 PPM image format.
+* Supports binary P6 PPM image format and PNG image format.
 * Applies a user-defined 3x3 convolution kernel.
 * Example: edge detection using the Laplacian kernel.
 * Includes helper functions for reading, writing, and inverting images.
+
 
 ## Usage
 
@@ -16,22 +17,19 @@ This is a simple C program that reads a binary P6 PPM image, applies a 3x3 convo
 Ensure you have `make` and a C compiler installed. Then run:
 
 ```bash
-make build
+make
 ```
 
 This compiles `main.c` and generates an executable named `conv`.
 
 ### Run
 ```bash
-make run
-```
-or
-```bash
 ./conv input.ppm output.ppm
 ```
-
-* `input.ppm`: Path to the source image (must be in binary P6 format).
-* `output.ppm`: Path where the convolved image will be saved.
+or 
+```bash
+./conv input.png output.png
+```
 
 ## Example
 
@@ -51,12 +49,7 @@ The program currently uses the following Laplacian kernel:
 -1 -1 -1
 ```
 
-You can modify the kernel in `main.c` inside the `main()` function.
-
-## File Structure
-
-* `main.c`: Contains all the logic for reading/writing PPM files, applying convolution, and managing memory.
-* `Makefile`: Builds the project with standard `make` commands.
+The kernel is a global variable above the `convolve` function
 
 ## Notes
 
