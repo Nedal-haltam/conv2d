@@ -95,11 +95,17 @@ unsigned char clamp(int val) {
     return (unsigned char)val;
 }
 
-int kernel[3][3] = {
+int KERNEL_EDGE_DETECTOR[3][3] = {
     {-1, -1, -1},
     {-1,  8, -1},
     {-1, -1, -1}
 };
+int KERNEL_IDENTITY[3][3] = {
+    {0, 0, 0},
+    {0, 1, 0},
+    {0, 0, 0}
+};
+
 int kRows = 3;
 int kCols = 3;
 void conv2d(PPMImage* input, PPMImage* output) {
@@ -112,7 +118,8 @@ void conv2d(PPMImage* input, PPMImage* output) {
                     int py = y + ky - 1;
                     if (!(px < 0 || px >= input->width || py < 0 || py >= input->height))
                     {
-                        int k = kernel[ky][kx];
+                        // int k = KERNEL_EDGE_DETECTOR[ky][kx];
+                        int k = KERNEL_IDENTITY[ky][kx];
                         r_sum += input->data[(3 * (py * input->width + px)) + 0] * k;
                         g_sum += input->data[(3 * (py * input->width + px)) + 1] * k;
                         b_sum += input->data[(3 * (py * input->width + px)) + 2] * k;
@@ -136,25 +143,6 @@ std::vector<int> conv1d(std::vector<int>& a, std::vector<int>& b)
     }
     return result;
 }
-/*
-variables: Input, kernel, Output
-indexes: x, y, kx, ky
-we can continue as if the output is in the most inner loop and the rgb_sum are just temporary, and we can clamp properly in the hardware
-
-
-
-systolic steps:
-    - for each variable: Dependence matrices, NSBVs
-    - find the scheduling vectors for the all the possible variables configurations (i.e. pipelined/broadcasted for each variable)
-    - for each scheduling vector obtain all its PDVs
-    - for each PDV obtain its projection matrix
-        - scheduling function
-        - projected NSBVs to know along which axis is it pipelined/broadcasted
-    - read the last part of the systolic-arrays paper in overleaf for:
-        - delay registers
-        - input feeding point
-        - output initialization point and extraction point 
-*/
 
 void HandlePNG(const char* input_png, const char* output_png) {
     int width, height, channels;
@@ -187,14 +175,6 @@ void HandlePNG(const char* input_png, const char* output_png) {
 }
 
 int main(int argc, char* argv[]) {
-    std::vector<int> a = {1, 2, 3};
-    std::vector<int> b = {0, 2, 0};
-    std::vector<int> result = conv1d(a, b);
-    printf("Convolution result: ");
-    for (int val : result) {
-        printf("%d ", val);
-    }
-    return 0;
     if (argc != 3) {
         printf("Usage: %s <input image> <output image>\n", argv[0]);
         return 1;
