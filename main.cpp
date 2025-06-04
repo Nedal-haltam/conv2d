@@ -1,8 +1,6 @@
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
+#include <iostream>
+#include <vector>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -24,7 +22,7 @@ PPMImage* read_ppm(const char* filename) {
 
     char format[3];
     if (fscanf(fp, "%2s", format) != 1 || strcmp(format, "P6") != 0) {
-        printf("Invalid or unsupported PPM format.\n");
+        std::cout << "Unsupported PPM format. Only P6 is supported.\n";
         fclose(fp);
         return NULL;
     }
@@ -62,7 +60,6 @@ int write_ppm(const char* filename, PPMImage* img) {
         perror("Cannot write to file");
         return 0;
     }
-
     fprintf(fp, "P6\n%d %d\n%d\n", img->width, img->height, img->max_val);
     fwrite(img->data, 1, img->width * img->height * 3, fp);
     fclose(fp);
@@ -95,19 +92,20 @@ unsigned char clamp(int val) {
     return (unsigned char)val;
 }
 
-int KERNEL_EDGE_DETECTOR[3][3] = {
+#define KERNEL_WIDTH 3
+#define KERNEL_HEIGHT 3
+
+int KERNEL_EDGE_DETECTOR[KERNEL_HEIGHT][KERNEL_WIDTH] = {
     {-1, -1, -1},
     {-1,  8, -1},
-    {-1, -1, -1}
+    {-1, -1, -1},
 };
-int KERNEL_IDENTITY[3][3] = {
+int KERNEL_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
     {0, 0, 0},
     {0, 1, 0},
-    {0, 0, 0}
+    {0, 0, 0},
 };
 
-int kRows = 3;
-int kCols = 3;
 void conv2d(PPMImage* input, PPMImage* output) {
     for (int y = 0; y < input->height; y++) {
         for (int x = 0; x < input->width; x++) {
@@ -132,7 +130,6 @@ void conv2d(PPMImage* input, PPMImage* output) {
         }
     }
 }
-#include <vector>
 std::vector<int> conv1d(std::vector<int>& a, std::vector<int>& b)
 {
     std::vector<int> result(a.size() + b.size() - 1, 0);
@@ -148,7 +145,7 @@ void HandlePNG(const char* input_png, const char* output_png) {
     int width, height, channels;
     unsigned char* img = stbi_load(input_png, &width, &height, &channels, 3);
     if (!img) {
-        fprintf(stderr, "Failed to load PNG: %s\n", stbi_failure_reason());
+        std::cerr << "Failed to load PNG: " << stbi_failure_reason() << "\n";
         exit(1);
     }
 
@@ -169,14 +166,15 @@ void HandlePNG(const char* input_png, const char* output_png) {
     conv2d(ppm_img, out);
 
     if (!stbi_write_png(output_png, out->width, out->height, 3, out->data, out->width * 3)) {
-        fprintf(stderr, "Failed to write PNG: %s\n", stbi_failure_reason());
+        std::cerr << "Failed to write PNG: " << stbi_failure_reason() << "\n";
         exit(1);
     }
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        printf("Usage: %s <input image> <output image>\n", argv[0]);
+    if (argc != 3) 
+    {
+        std::cout << "Usage: " << argv[0] << " <input image> <output image>\n";
         return 1;
     }
 
@@ -200,11 +198,11 @@ int main(int argc, char* argv[]) {
     {
         HandlePNG(argv[1], argv[2]);
     }
-    else {
-        printf("Unsupported file format: %s\n", extension);
+    else 
+    {
+        std::cerr << "Unsupported file format: " << extension << "\n";
         return 1;
     }
-
-    printf("Convolution applied and saved to %s\n", argv[2]);
+    std::cout << "Convolution applied and saved to " << argv[2] << "\n";
     return 0;
 }
