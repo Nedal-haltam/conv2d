@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -11,7 +12,7 @@ typedef struct {
     int width;
     int height;
     int max_val;
-    unsigned char* data;  // RGB pixel data
+    unsigned char* data;
 } PPMImage;
 
 PPMImage* read_ppm(const char* filename) {
@@ -30,7 +31,7 @@ PPMImage* read_ppm(const char* filename) {
 
     PPMImage* img = (PPMImage*)malloc(sizeof(PPMImage));
 
-    // Skip comments
+    
     int c;
     while ((c = fgetc(fp)) == '#') {
         while (fgetc(fp) != '\n');
@@ -38,7 +39,7 @@ PPMImage* read_ppm(const char* filename) {
     ungetc(c, fp);
 
     fscanf(fp, "%d %d %d", &img->width, &img->height, &img->max_val);
-    fgetc(fp);  // Consume one whitespace after header
+    fgetc(fp);  
 
     int size = img->width * img->height * 3;
     img->data = (unsigned char*)malloc(size);
@@ -83,7 +84,7 @@ int save_ppm(const char* filename, unsigned char* data, int width, int height) {
     }
 
     fprintf(fp, "P6\n%d %d\n255\n", width, height);
-    fwrite(data, 3, width * height, fp);  // RGB only
+    fwrite(data, 3, width * height, fp);  
     fclose(fp);
     return 1;
 }
@@ -99,39 +100,65 @@ int kernel[3][3] = {
     {-1,  8, -1},
     {-1, -1, -1}
 };
-void convolve(PPMImage* input, PPMImage* output) {
-    int w = input->width;
-    int h = input->height;
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
+int kRows = 3;
+int kCols = 3;
+void conv2d(PPMImage* input, PPMImage* output) {
+    for (int y = 0; y < input->height; y++) {
+        for (int x = 0; x < input->width; x++) {
             int r_sum = 0, g_sum = 0, b_sum = 0;
             for (int ky = 0; ky < 3; ky++) {
                 for (int kx = 0; kx < 3; kx++) {
-                    int px = x + kx - 1; // Adjust for kernel offset
+                    int px = x + kx - 1; 
                     int py = y + ky - 1;
-                    if (px < 0 || px >= w || py < 0 || py >= h) continue;
-
-                    int idx = 3 * (py * w + px);
-                    int k = kernel[ky][kx];
-                    r_sum += input->data[idx]     * k;
-                    g_sum += input->data[idx + 1] * k;
-                    b_sum += input->data[idx + 2] * k;
+                    if (!(px < 0 || px >= input->width || py < 0 || py >= input->height))
+                    {
+                        int k = kernel[ky][kx];
+                        r_sum += input->data[(3 * (py * input->width + px)) + 0] * k;
+                        g_sum += input->data[(3 * (py * input->width + px)) + 1] * k;
+                        b_sum += input->data[(3 * (py * input->width + px)) + 2] * k;
+                    }
                 }
             }
-
-            int out_idx = 3 * (y * w + x);
-            output->data[out_idx]     = (unsigned char)(clamp(r_sum));
-            output->data[out_idx + 1] = (unsigned char)(clamp(g_sum));
-            output->data[out_idx + 2] = (unsigned char)(clamp(b_sum));
+            output->data[(3 * (y * input->width + x)) + 0] = clamp(r_sum);
+            output->data[(3 * (y * input->width + x)) + 1] = clamp(g_sum);
+            output->data[(3 * (y * input->width + x)) + 2] = clamp(b_sum);
         }
     }
 }
+#include <vector>
+std::vector<int> conv1d(std::vector<int>& a, std::vector<int>& b)
+{
+    std::vector<int> result(a.size() + b.size() - 1, 0);
+    for (size_t i = 0; i < a.size(); i++) {
+        for (size_t j = 0; j < b.size(); j++) {
+            result[i + j] += a[i] * b[j];
+        }
+    }
+    return result;
+}
+/*
+variables: Input, kernel, Output
+indexes: x, y, kx, ky
+we can continue as if the output is in the most inner loop and the rgb_sum are just temporary, and we can clamp properly in the hardware
 
+
+
+systolic steps:
+    - for each variable: Dependence matrices, NSBVs
+    - find the scheduling vectors for the all the possible variables configurations (i.e. pipelined/broadcasted for each variable)
+    - for each scheduling vector obtain all its PDVs
+    - for each PDV obtain its projection matrix
+        - scheduling function
+        - projected NSBVs to know along which axis is it pipelined/broadcasted
+    - read the last part of the systolic-arrays paper in overleaf for:
+        - delay registers
+        - input feeding point
+        - output initialization point and extraction point 
+*/
 
 void HandlePNG(const char* input_png, const char* output_png) {
     int width, height, channels;
-    // Load PNG image using stb_image
-    unsigned char* img = stbi_load(input_png, &width, &height, &channels, 3); // Force RGB (3 channels)
+    unsigned char* img = stbi_load(input_png, &width, &height, &channels, 3);
     if (!img) {
         fprintf(stderr, "Failed to load PNG: %s\n", stbi_failure_reason());
         exit(1);
@@ -149,9 +176,9 @@ void HandlePNG(const char* input_png, const char* output_png) {
     out->width = width;
     out->height = height;
     out->max_val = 255;
-    out->data = (unsigned char*)malloc(width * height * 3); // Allocate memory for output image
+    out->data = (unsigned char*)malloc(width * height * 3);
 
-    convolve(ppm_img, out);
+    conv2d(ppm_img, out);
 
     if (!stbi_write_png(output_png, out->width, out->height, 3, out->data, out->width * 3)) {
         fprintf(stderr, "Failed to write PNG: %s\n", stbi_failure_reason());
@@ -160,6 +187,14 @@ void HandlePNG(const char* input_png, const char* output_png) {
 }
 
 int main(int argc, char* argv[]) {
+    std::vector<int> a = {1, 2, 3};
+    std::vector<int> b = {0, 2, 0};
+    std::vector<int> result = conv1d(a, b);
+    printf("Convolution result: ");
+    for (int val : result) {
+        printf("%d ", val);
+    }
+    return 0;
     if (argc != 3) {
         printf("Usage: %s <input image> <output image>\n", argv[0]);
         return 1;
@@ -176,9 +211,9 @@ int main(int argc, char* argv[]) {
         out->width = img->width;
         out->height = img->height;
         out->max_val = 255;
-        out->data = (unsigned char*)malloc(img->width * img->height * 3); // Allocate memory for output image
+        out->data = (unsigned char*)malloc(img->width * img->height * 3);
         if (!out->data) return 1;
-        convolve(img, out);
+        conv2d(img, out);
         write_ppm(argv[2], out);
     }
     else if (strcmp(extension, ".png") == 0) 

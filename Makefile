@@ -1,7 +1,7 @@
 
 
-build: main.c
-	gcc main.c -Wall -Wextra -Wpedantic -o conv.exe
+build: main.cpp
+	g++ main.cpp -Wall -o conv.exe
 
 run:
 	./conv.exe ./lena.png ./edge_lena.png
