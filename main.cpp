@@ -66,13 +66,6 @@ int write_ppm(const char* filename, PPMImage* img) {
     return 1;
 }
 
-void free_ppm(PPMImage* img) {
-    if (img) {
-        free(img->data);
-        free(img);
-    }
-}
-
 int save_ppm(const char* filename, unsigned char* data, int width, int height) {
     FILE* fp = fopen(filename, "wb");
     if (!fp) {
@@ -169,6 +162,26 @@ void HandlePNG(const char* input_png, const char* output_png) {
         std::cerr << "Failed to write PNG: " << stbi_failure_reason() << "\n";
         exit(1);
     }
+}
+
+void WriteColoredPPM(const char* filename, int width, int height, uint32_t color) {
+    PPMImage img;
+    img.width = width;
+    img.height = height;
+    img.max_val = 255;
+    img.data = (unsigned char*)malloc(width * height * 3);
+    
+    for (int i = 0; i < width * height; i++) {
+        img.data[3 * i + 0] = (color >> (8 * 3)) & 0xFF;
+        img.data[3 * i + 1] = (color >> (8 * 2)) & 0xFF;
+        img.data[3 * i + 2] = (color >> (8 * 1)) & 0xFF;
+    }
+
+    if (!write_ppm(filename, &img)) {
+        std::cerr << "Failed to write random PPM image.\n";
+    }
+    
+    free(img.data);
 }
 
 int main(int argc, char* argv[]) {
