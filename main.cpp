@@ -109,8 +109,8 @@ void conv2d(PPMImage* input, PPMImage* output) {
                     int py = y + ky - 1;
                     if (!(px < 0 || px >= input->width || py < 0 || py >= input->height))
                     {
-                        // int k = KERNEL_EDGE_DETECTOR[ky][kx];
-                        int k = KERNEL_IDENTITY[ky][kx];
+                        int k = KERNEL_EDGE_DETECTOR[ky][kx];
+                        // int k = KERNEL_IDENTITY[ky][kx];
                         r_sum += input->data[(3 * (py * input->width + px)) + 0] * k;
                         g_sum += input->data[(3 * (py * input->width + px)) + 1] * k;
                         b_sum += input->data[(3 * (py * input->width + px)) + 2] * k;
