@@ -499,7 +499,7 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
 
     for (auto &f : output_frames) {
         Mat f8u;
-        // f.convertTo(f8u, CV_8U, 1.0, 0); // optional: scale/shift if negative values exist
+        f.convertTo(f8u, CV_8U, 1.0, 0);
         writer.write(f8u);
     }
 
@@ -584,7 +584,7 @@ void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
 
     for (auto &f : output_frames) {
         Mat f8u;
-        // f.convertTo(f8u, CV_8UC3, 1.0, 0);
+        f.convertTo(f8u, CV_8UC3, 1.0, 0);
         writer.write(f8u);
     }
 
@@ -666,7 +666,7 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
         }
         // Convert to 8-bit and write
         Mat out8u;
-        // out.convertTo(out8u, CV_8UC3, 1.0, 0); // shift if needed
+        out.convertTo(out8u, CV_8UC3, 1.0, 0);
         writer.write(out8u);
         
         // Remove the oldest frame
