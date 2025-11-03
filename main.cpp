@@ -127,7 +127,11 @@ int KERNEL2D_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
 
 int (*k2d)[3] = KERNEL2D_EDGE_DETECTOR;
 
-void conv2d(PPMImage* input, PPMImage* output) {
+void conv2d(PPMImage* input, PPMImage* output)
+{
+#ifdef _OPENMP
+    #pragma omp parallel for collapse(2)
+#endif
     for (int y = 0; y < input->height; y++) {
         for (int x = 0; x < input->width; x++) {
             int r_sum = 0, g_sum = 0, b_sum = 0;
