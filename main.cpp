@@ -5,6 +5,7 @@
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#include <cstdio>
 
 typedef struct {
     int width;
@@ -89,15 +90,18 @@ unsigned char clamp(int val) {
 #define KERNEL_HEIGHT 3
 
 int KERNEL_EDGE_DETECTOR[KERNEL_HEIGHT][KERNEL_WIDTH] = {
-    {-1, -1, -1},
-    {-1,  8, -1},
-    {-1, -1, -1},
+    {-1, 0, 1},
+    {-2, 0, 2},
+    {-1, 0, 1},
 };
+
 int KERNEL_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
     {0, 0, 0},
     {0, 1, 0},
     {0, 0, 0},
 };
+
+int (*KERNEL)[3] = KERNEL_EDGE_DETECTOR;
 
 void conv2d(PPMImage* input, PPMImage* output) {
     for (int y = 0; y < input->height; y++) {
@@ -109,7 +113,7 @@ void conv2d(PPMImage* input, PPMImage* output) {
                     int py = y + ky - 1;
                     if (!(px < 0 || px >= input->width || py < 0 || py >= input->height))
                     {
-                        int k = KERNEL_EDGE_DETECTOR[ky][kx];
+                        int k = KERNEL[ky][kx];
                         // int k = KERNEL_IDENTITY[ky][kx];
                         r_sum += input->data[(3 * (py * input->width + px)) + 0] * k;
                         g_sum += input->data[(3 * (py * input->width + px)) + 1] * k;
@@ -117,9 +121,9 @@ void conv2d(PPMImage* input, PPMImage* output) {
                     }
                 }
             }
-            output->data[(3 * (y * input->width + x)) + 0] = clamp(r_sum);
-            output->data[(3 * (y * input->width + x)) + 1] = clamp(g_sum);
-            output->data[(3 * (y * input->width + x)) + 2] = clamp(b_sum);
+            output->data[(3 * (y * input->width + x)) + 0] = clamp(abs(r_sum));
+            output->data[(3 * (y * input->width + x)) + 1] = clamp(abs(g_sum));
+            output->data[(3 * (y * input->width + x)) + 2] = clamp(abs(b_sum));
         }
     }
 }

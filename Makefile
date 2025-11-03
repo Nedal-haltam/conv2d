@@ -1,10 +1,12 @@
-
+.PHONY: build run-all
 
 build: main.cpp
-	g++ main.cpp -Wall -o conv.exe
+	g++ main.cpp -Wall -o main.exe
 
-run:
-	./conv.exe ./lena.png ./edge_lena.png
-	./conv.exe ./lena.ppm ./edge_lena.ppm
-	./conv.exe ./tree.png ./edge_tree.png
-	./conv.exe ./tree.ppm ./edge_tree.ppm
+run-all:
+	./main.exe ./input_images/lena.png ./output_images/edge_lena.png
+	./main.exe ./input_images/lena.ppm ./output_images/edge_lena.ppm
+	./main.exe ./input_images/tree.png ./output_images/edge_tree.png
+	./main.exe ./input_images/tree.ppm ./output_images/edge_tree.ppm
+	./main.exe ./input_images/tree.ppm ./output_images/edge_tree.ppm
+	./main.exe ./input_images/humananflower.png ./output_images/edge_humananflower.png
