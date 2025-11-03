@@ -1,3 +1,5 @@
 *.png
 *.ppm
 *.exe
+/output_videos
+/input_videos
