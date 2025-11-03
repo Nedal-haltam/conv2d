@@ -1,12 +1,20 @@
-.PHONY: build run-all
+.PHONY: build run-all-images run-all-videos
 
 build: main.cpp
-	g++ main.cpp -Wall -o main.exe
+	g++ main.cpp -fopenmp -O3 -o ompmain.exe $(shell pkg-config --cflags --libs opencv4)
+	g++ main.cpp -O3 -o main.exe $(shell pkg-config --cflags --libs opencv4)
 
-run-all:
-	./main.exe ./input_images/lena.png ./output_images/edge_lena.png
-	./main.exe ./input_images/lena.ppm ./output_images/edge_lena.ppm
-	./main.exe ./input_images/tree.png ./output_images/edge_tree.png
-	./main.exe ./input_images/tree.ppm ./output_images/edge_tree.ppm
-	./main.exe ./input_images/tree.ppm ./output_images/edge_tree.ppm
-	./main.exe ./input_images/humananflower.png ./output_images/edge_humananflower.png
+run-all-images:
+	rm -rf ./output_images/
+	mkdir -p ./output_images/
+	./main.exe ./input_images/lena.png ./output_images/lena.png
+	./main.exe ./input_images/lena.ppm ./output_images/lena.ppm
+	./main.exe ./input_images/tree.png ./output_images/tree.png
+	./main.exe ./input_images/tree.ppm ./output_images/tree.ppm
+	./main.exe ./input_images/tree.ppm ./output_images/tree.ppm
+	./main.exe ./input_images/humananflower.png ./output_images/humananflower.png
+
+run-all-videos:
+	rm -rf ./output_videos/
+	mkdir -p ./output_videos/
+	./main.exe ./input_videos/sample.mp4 ./output_videos/sample.mp4

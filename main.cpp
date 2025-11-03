@@ -6,6 +6,29 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 #include <cstdio>
+#include <opencv2/opencv.hpp>
+#include <iostream>
+#include <vector>
+#include <cmath>
+
+clock_t Clocker;
+void StartClock()
+{
+    Clocker = clock();
+}
+
+double EndClock(bool Verbose = false)
+{
+    clock_t t = clock() - Clocker;
+    double TimeTaken = (double)(t) / CLOCKS_PER_SEC;
+    if (Verbose)
+    {
+        std::cout << "Time taken: " << std::fixed << std::setprecision(8) << TimeTaken << "s\n";
+    }
+    std::cout.unsetf(std::ios::fixed);
+    std::cout.precision(6);
+    return TimeTaken;
+}
 
 typedef struct {
     int width;
@@ -88,20 +111,21 @@ unsigned char clamp(int val) {
 
 #define KERNEL_WIDTH 3
 #define KERNEL_HEIGHT 3
+#define KERNEL_DEPTH 3
 
-int KERNEL_EDGE_DETECTOR[KERNEL_HEIGHT][KERNEL_WIDTH] = {
+int KERNEL2D_EDGE_DETECTOR[KERNEL_HEIGHT][KERNEL_WIDTH] = {
     {-1, 0, 1},
     {-2, 0, 2},
     {-1, 0, 1},
 };
 
-int KERNEL_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
+int KERNEL2D_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
     {0, 0, 0},
     {0, 1, 0},
     {0, 0, 0},
 };
 
-int (*KERNEL)[3] = KERNEL_EDGE_DETECTOR;
+int (*k2d)[3] = KERNEL2D_EDGE_DETECTOR;
 
 void conv2d(PPMImage* input, PPMImage* output) {
     for (int y = 0; y < input->height; y++) {
@@ -113,7 +137,7 @@ void conv2d(PPMImage* input, PPMImage* output) {
                     int py = y + ky - 1;
                     if (!(px < 0 || px >= input->width || py < 0 || py >= input->height))
                     {
-                        int k = KERNEL[ky][kx];
+                        int k = k2d[ky][kx];
                         // int k = KERNEL_IDENTITY[ky][kx];
                         r_sum += input->data[(3 * (py * input->width + px)) + 0] * k;
                         g_sum += input->data[(3 * (py * input->width + px)) + 1] * k;
@@ -188,7 +212,365 @@ void WriteColoredPPM(const char* filename, int width, int height, uint32_t color
     free(img.data);
 }
 
+void HandlePPM(const char* input_ppm, const char* output_ppm)
+{
+    PPMImage* img = read_ppm(input_ppm);
+    if (!img) exit(1);
+    PPMImage *out = (PPMImage*)malloc(sizeof(PPMImage));
+    if (!out) exit(1);
+    out->width = img->width;
+    out->height = img->height;
+    out->max_val = 255;
+    out->data = (unsigned char*)malloc(img->width * img->height * 3);
+    if (!out->data) exit(1);
+    conv2d(img, out);
+    write_ppm(output_ppm, out);
+}
+
+using namespace cv;
+
+void conv2d(const cv::Mat& input, cv::Mat& output) {
+    output = Mat::zeros(input.size(), input.type());
+
+    for (int y = 1; y < input.rows - 1; y++) {
+        for (int x = 1; x < input.cols - 1; x++) {
+            int r_sum = 0, g_sum = 0, b_sum = 0;
+            for (int ky = 0; ky < 3; ky++) {
+                for (int kx = 0; kx < 3; kx++) {
+                    Vec3b pixel = input.at<Vec3b>(y + ky - 1, x + kx - 1);
+                    int k = k2d[ky][kx];
+                    r_sum += pixel[2] * k;
+                    g_sum += pixel[1] * k;
+                    b_sum += pixel[0] * k;
+                }
+            }
+            output.at<Vec3b>(y, x)[2] = std::clamp(std::abs(r_sum), 0, 255);
+            output.at<Vec3b>(y, x)[1] = std::clamp(std::abs(g_sum), 0, 255);
+            output.at<Vec3b>(y, x)[0] = std::clamp(std::abs(b_sum), 0, 255);
+        }
+    }
+}
+
+// Example 3D kernel (temporal depth = 3)
+int KERNEL3D_EDGE_DETECTOR[3][3][3] = {
+    {
+        {-1, -2, -1},
+        {-2, -4, -2},
+        {-1, -2, -1}
+    },
+    {
+        {0, 0, 0},
+        {0, 0, 0},
+        {0, 0, 0}
+    },
+    {
+        {1, 2, 1},
+        {2, 4, 2},
+        {1, 2, 1}
+    }
+};
+
+int (*k3d)[3][3] = KERNEL3D_EDGE_DETECTOR;
+
+void HandleMP4_2D(const char* input_path, const char* output_path)
+{
+    VideoCapture cap(input_path);
+    if (!cap.isOpened()) {
+        std::cerr << "Failed to open input video.\n";
+        exit(1);
+    }
+
+    int width = static_cast<int>(cap.get(CAP_PROP_FRAME_WIDTH));
+    int height = static_cast<int>(cap.get(CAP_PROP_FRAME_HEIGHT));
+    double fps = cap.get(CAP_PROP_FPS);
+    int total_frames = static_cast<int>(cap.get(CAP_PROP_FRAME_COUNT));
+
+    std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
+
+    VideoWriter writer(output_path, VideoWriter::fourcc('m', 'p', '4', 'v'), fps, Size(width, height));
+
+    if (!writer.isOpened()) {
+        std::cerr << "Failed to open output video.\n";
+        exit(1);
+    }
+
+    cv::Mat frame, filtered;
+    std::cout << "Processing video...\n";
+
+    StartClock();
+    std::cout << "clock started\n";
+    while (true) {
+        cap >> frame;
+        if (frame.empty())
+            break;
+
+        conv2d(frame, filtered);
+
+        writer.write(filtered);
+    }
+    EndClock(true);
+
+    cap.release();
+    writer.release();
+    std::cout << "Output saved to " << output_path << "\n";
+}
+
+void HandleMP4_3D(const char* input_path, const char* output_path)
+{
+    VideoCapture cap(input_path);
+    if (!cap.isOpened()) {
+        std::cout << "Failed to open input video\n";
+        exit(1);
+    }
+
+    int width = static_cast<int>(cap.get(CAP_PROP_FRAME_WIDTH));
+    int height = static_cast<int>(cap.get(CAP_PROP_FRAME_HEIGHT));
+    int fps = static_cast<int>(cap.get(CAP_PROP_FPS));
+    int total_frames = static_cast<int>(cap.get(CAP_PROP_FRAME_COUNT));
+
+    std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
+    std::cout << "Loading frames...\n";
+    std::vector<Mat> input_frames;
+    for (int i = 0; i < total_frames; ++i) {
+        Mat frame;
+        cap >> frame;
+        if (frame.empty()) break;
+        cvtColor(frame, frame, COLOR_BGR2GRAY);          // Convert to grayscale
+        Mat frame_f;
+        frame.convertTo(frame_f, CV_32F);               // Convert to float
+        input_frames.push_back(frame_f);
+    }
+    cap.release();
+
+    int kD = 3, kH = 3, kW = 3;                         // Kernel size
+    int padD = kD / 2, padH = kH / 2, padW = kW / 2;
+
+    int D = static_cast<int>(input_frames.size());
+    int H = input_frames[0].rows;
+    int W = input_frames[0].cols;
+
+    std::vector<Mat> output_frames(D);
+    for (int t = 0; t < D; ++t)
+        output_frames[t] = Mat::zeros(H, W, CV_32F);
+
+    std::cout << "Applying 3D convolution...\n";
+    // 3D convolution
+    StartClock();
+    std::cout << "clock started\n";
+#ifdef _OPENMP
+    #pragma omp parallel for collapse(3)
+#endif
+    for (int z = padD; z < D - padD; ++z) {
+        for (int y = padH; y < H - padH; ++y) {
+            for (int x = padW; x < W - padW; ++x) {
+                float sum = 0.0f;
+                for (int dz = 0; dz < kD; ++dz)
+                    for (int dy = 0; dy < kH; ++dy)
+                        for (int dx = 0; dx < kW; ++dx)
+                        {
+                            int tz = z + dz - padD;
+                            int ty = y + dy - padH;
+                            int tx = x + dx - padW;
+                            sum += input_frames[tz].at<float>(ty, tx) * k3d[dz][dy][dx];
+                        }
+                output_frames[z].at<float>(y, x) = sum;
+            }
+        }
+    }
+    EndClock(true);
+
+    std::cout << "Writing output video...\n";
+    // Convert float frames to 8-bit for VideoWriter
+    VideoWriter writer(output_path, VideoWriter::fourcc('m','p','4','v'), fps, Size(width, height), false);
+    if (!writer.isOpened()) {
+        std::cout << "Failed to open output video\n";
+        exit(1);
+    }
+
+    for (auto &f : output_frames) {
+        Mat f8u;
+        f.convertTo(f8u, CV_8U, 1.0, 128); // optional: scale/shift if negative values exist
+        writer.write(f8u);
+    }
+
+    std::cout << "Output saved to " << output_path << "\n";
+}
+
+void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
+{
+    VideoCapture cap(input_path);
+    if (!cap.isOpened()) {
+        std::cout << "Failed to open input video\n";
+        exit(1);
+    }
+
+    int width = static_cast<int>(cap.get(CAP_PROP_FRAME_WIDTH));
+    int height = static_cast<int>(cap.get(CAP_PROP_FRAME_HEIGHT));
+    int fps = static_cast<int>(cap.get(CAP_PROP_FPS));
+    int total_frames = static_cast<int>(cap.get(CAP_PROP_FRAME_COUNT));
+
+    std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
+    std::cout << "Loading frames...\n";
+    // Load all frames (color)
+    std::vector<Mat> input_frames;
+    for (int i = 0; i < total_frames; ++i) {
+        Mat frame;
+        cap >> frame;
+        if (frame.empty()) break;
+        Mat frame_f;
+        frame.convertTo(frame_f, CV_8UC3);  // convert to float with 3 channels
+        input_frames.push_back(frame_f);
+    }
+    cap.release();
+
+    int kD = 3, kH = 3, kW = 3;                         // Kernel size
+    int padD = kD / 2, padH = kH / 2, padW = kW / 2;
+
+    int D = static_cast<int>(input_frames.size());
+    int H = input_frames[0].rows;
+    int W = input_frames[0].cols;
+    
+    // Initialize output frames
+    std::vector<Mat> output_frames(D);
+    for (int t = 0; t < D; ++t)
+        output_frames[t] = Mat::zeros(H, W, CV_8UC3);
+
+    std::cout << "Applying 3D convolution on RGB frames...\n";
+    // 3D convolution
+    StartClock();
+    std::cout << "clock started\n";
+#ifdef _OPENMP
+    #pragma omp parallel for collapse(3)
+#endif
+    for (int z = padD; z < D - padD; ++z) {
+        for (int y = padH; y < H - padH; ++y) {
+            for (int x = padW; x < W - padW; ++x) {
+                Vec3f sum(0, 0, 0);
+                for (int dz = 0; dz < kD; ++dz)
+                    for (int dy = 0; dy < kH; ++dy)
+                        for (int dx = 0; dx < kW; ++dx)
+                        {
+                            int tz = z + dz - padD;
+                            int ty = y + dy - padH;
+                            int tx = x + dx - padW;
+                            Vec3f pixel = input_frames[tz].at<Vec3f>(ty, tx);
+                            float k = k3d[dz][dy][dx];
+                            sum[0] += pixel[0] * k; // Blue
+                            sum[1] += pixel[1] * k; // Green
+                            sum[2] += pixel[2] * k; // Red
+                        }
+                output_frames[z].at<Vec3f>(y, x) = sum;
+            }
+        }
+    }
+    EndClock(true);
+
+    std::cout << "Writing output video...\n";
+    // Write output video
+    VideoWriter writer(output_path, VideoWriter::fourcc('m','p','4','v'), fps, Size(width, height), true);
+    if (!writer.isOpened()) {
+        std::cout << "Failed to open output video\n";
+        exit(1);
+    }
+
+    for (auto &f : output_frames) {
+        Mat f8u;
+        f.convertTo(f8u, CV_8UC3, 1.0, 128);  // convert float to 8-bit
+        writer.write(f8u);
+    }
+
+    std::cout << "Output saved to " << output_path << "\n";
+}
+
+void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
+{
+    VideoCapture cap(input_path);
+    if (!cap.isOpened()) {
+        std::cout << "Failed to open input video\n";
+        exit(1);
+    }
+
+    int width = static_cast<int>(cap.get(CAP_PROP_FRAME_WIDTH));
+    int height = static_cast<int>(cap.get(CAP_PROP_FRAME_HEIGHT));
+    int fps = static_cast<int>(cap.get(CAP_PROP_FPS));
+    int total_frames = static_cast<int>(cap.get(CAP_PROP_FRAME_COUNT));
+
+    std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
+
+    int kD = 3, kH = 3, kW = 3;
+    int padH = kH / 2, padW = kW / 2;
+    int padD = kD / 2;
+
+    // Prepare VideoWriter
+    VideoWriter writer(output_path, VideoWriter::fourcc('m','p','4','v'), fps, Size(width, height), true);
+    if (!writer.isOpened()) {
+        std::cout << "Failed to open output video\n";
+        exit(1);
+    }
+
+    std::deque<Mat> buffer;  // sliding window of input frames
+
+    std::cout << "Processing video with sliding 3D convolution...\n";
+
+    int frame_idx = 0;
+    Mat frame;
+    StartClock();
+    std::cout << "clock started\n";
+    while (true) {
+        cap >> frame;
+        if (frame.empty()) break;
+
+        Mat frame_f;
+        frame.convertTo(frame_f, CV_32FC3);
+        buffer.push_back(frame_f);
+
+        // Wait until we have enough frames for the convolution
+        if (buffer.size() < kD) continue;
+
+        // Convolve the middle frame
+        Mat out = Mat::zeros(height, width, CV_32FC3);
+        int mid = kD / 2;
+
+        
+#ifdef _OPENMP
+        #pragma omp parallel for collapse(2)
+#endif
+        for (int y = padH; y < height - padH; ++y) {
+            for (int x = padW; x < width - padW; ++x) {
+                Vec3f sum(0,0,0);
+                for (int dz = 0; dz < kD; ++dz)
+                    for (int dy = 0; dy < kH; ++dy)
+                        for (int dx = 0; dx < kW; ++dx)
+                        {
+                            int ty = y + dy - padH;
+                            int tx = x + dx - padW;
+                            Vec3f pixel = buffer[dz].at<Vec3f>(ty, tx);
+                            float k = k3d[dz][dy][dx];
+                            sum[0] += pixel[0] * k;
+                            sum[1] += pixel[1] * k;
+                            sum[2] += pixel[2] * k;
+                        }
+                out.at<Vec3f>(y, x) = sum;
+            }
+        }
+        // Convert to 8-bit and write
+        Mat out8u;
+        out.convertTo(out8u, CV_8UC3, 1.0, 128); // shift if needed
+        writer.write(out8u);
+        
+        // Remove the oldest frame
+        buffer.pop_front();
+        frame_idx++;
+    }
+    EndClock(true);
+    
+    cap.release();
+    writer.release();
+    std::cout << "Output saved to " << output_path << "\n";
+}
+
 int main(int argc, char* argv[]) {
+
     if (argc != 3) 
     {
         std::cout << "Usage: " << argv[0] << " <input image> <output image>\n";
@@ -196,30 +578,45 @@ int main(int argc, char* argv[]) {
     }
 
     const char* extension = strrchr(argv[1], '.');
-
-    if (strcmp(extension, ".ppm") == 0) {
-
-        PPMImage* img = read_ppm(argv[1]);
-        if (!img) return 1;
-        PPMImage *out = (PPMImage*)malloc(sizeof(PPMImage));
-        if (!out) return 1;
-        out->width = img->width;
-        out->height = img->height;
-        out->max_val = 255;
-        out->data = (unsigned char*)malloc(img->width * img->height * 3);
-        if (!out->data) return 1;
-        conv2d(img, out);
-        write_ppm(argv[2], out);
+    if (strcmp(extension, ".ppm") == 0)
+    {
+        HandlePPM(argv[1], argv[2]);
     }
     else if (strcmp(extension, ".png") == 0) 
     {
         HandlePNG(argv[1], argv[2]);
+    }
+    else if (strcmp(extension, ".mp4") == 0)
+    {
+        std::string out_arg = argv[2];
+        size_t dot = out_arg.rfind('.');
+        std::string base = (dot == std::string::npos) ? out_arg : out_arg.substr(0, dot);
+        std::string ext = (dot == std::string::npos) ? std::string() : out_arg.substr(dot);
+
+        std::string out_2d = base + "_2d" + ext;
+        std::string out_3d_gray = base + "_3d_gray" + ext;
+        std::string out_3d_rgb = base + "_3d_rgb" + ext;
+
+        std::cout << "---------------------------------------------------------------\n";
+        std::cout << "Running 2D per-frame convolution -> " << out_2d << "\n";
+        HandleMP4_2D(argv[1], out_2d.c_str());
+        std::cout << "---------------------------------------------------------------\n";
+        
+        std::cout << "---------------------------------------------------------------\n";
+        std::cout << "Running 3D temporal convolution (grayscale) -> " << out_3d_gray << "\n";
+        HandleMP4_3D(argv[1], out_3d_gray.c_str());
+        std::cout << "---------------------------------------------------------------\n";
+        
+        std::cout << "---------------------------------------------------------------\n";
+        std::cout << "Running 3D temporal convolution (RGB) -> " << out_3d_rgb << "\n";
+        // HandleMP4_3D_RGB(argv[1], out_3d_rgb.c_str());
+        HandleMP4_3D_RGB_Sliding(argv[1], out_3d_rgb.c_str());
+        std::cout << "---------------------------------------------------------------\n";
     }
     else 
     {
         std::cerr << "Unsupported file format: " << extension << "\n";
         return 1;
     }
-    std::cout << "Convolution applied and saved to " << argv[2] << "\n";
     return 0;
 }
