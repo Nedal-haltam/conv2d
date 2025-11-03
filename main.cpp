@@ -115,6 +115,12 @@ unsigned char clamp(int val) {
     return (unsigned char)val;
 }
 
+float clampf(float val) {
+    if (val < 0.0f) return 0.0f;
+    if (val > 255.0f) return 255.0f;
+    return val;
+}
+
 #define KERNEL_WIDTH 3
 #define KERNEL_HEIGHT 3
 #define KERNEL_DEPTH 3
@@ -440,9 +446,9 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
         Mat frame;
         cap >> frame;
         if (frame.empty()) break;
-        cvtColor(frame, frame, COLOR_BGR2GRAY);          // Convert to grayscale
+        cvtColor(frame, frame, COLOR_BGR2GRAY);
         Mat frame_f;
-        frame.convertTo(frame_f, CV_32F);               // Convert to float
+        frame.convertTo(frame_f, CV_32F);
         input_frames.push_back(frame_f);
     }
     cap.release();
@@ -477,7 +483,7 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
                             int tx = x + dx - padW;
                             sum += input_frames[tz].at<float>(ty, tx) * k3d[dz][dy][dx];
                         }
-                output_frames[z].at<float>(y, x) = sum;
+                output_frames[z].at<float>(y, x) = clampf((sum));
             }
         }
     }
@@ -652,6 +658,9 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
                             sum[1] += pixel[1] * k;
                             sum[2] += pixel[2] * k;
                         }
+                sum[0] = clampf(sum[0]);
+                sum[1] = clampf(sum[1]);
+                sum[2] = clampf(sum[2]);
                 out.at<Vec3f>(y, x) = sum;
             }
         }
@@ -799,7 +808,7 @@ int main(int argc, char* argv[])
         
         std::cout << "---------------------------------------------------------------\n";
         std::cout << "Running 3D temporal convolution (RGB) -> " << out_3d_rgb << "\n";
-        // HandleMP4_3D_RGB(input_path, out_3d_rgb.c_str());
+        // HandleMP4_3D_RGB(input_path, out_3d_rgb.c_str()); // consumes too much memory
         HandleMP4_3D_RGB_Sliding(input_path, out_3d_rgb.c_str());
         std::cout << "---------------------------------------------------------------\n";
     }
