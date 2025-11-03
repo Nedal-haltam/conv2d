@@ -12,8 +12,11 @@
 #include <cmath>
 #include <omp.h>
 #include <deque>
+#include "fftw-3.3.10/fftw-3.3.10/api/fftw3.h"
 
+bool pseudo = false;
 bool verbose = false;
+
 clock_t Clocker;
 void StartClock()
 {
@@ -130,34 +133,35 @@ int KERNEL2D_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
 
 int (*k2d)[3] = KERNEL2D_EDGE_DETECTOR;
 
-void conv2d(PPMImage* input, PPMImage* output)
+void conv2d(PPMImage& input, PPMImage& output)
 {
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
-    for (int y = 0; y < input->height; y++) {
-        for (int x = 0; x < input->width; x++) {
+    for (int y = 0; y < input.height; y++) {
+        for (int x = 0; x < input.width; x++) {
             int r_sum = 0, g_sum = 0, b_sum = 0;
             for (int ky = 0; ky < 3; ky++) {
                 for (int kx = 0; kx < 3; kx++) {
                     int px = x + kx - 1; 
                     int py = y + ky - 1;
-                    if (!(px < 0 || px >= input->width || py < 0 || py >= input->height))
+                    if (!(px < 0 || px >= input.width || py < 0 || py >= input.height))
                     {
                         int k = k2d[ky][kx];
                         // int k = KERNEL_IDENTITY[ky][kx];
-                        r_sum += input->data[(3 * (py * input->width + px)) + 0] * k;
-                        g_sum += input->data[(3 * (py * input->width + px)) + 1] * k;
-                        b_sum += input->data[(3 * (py * input->width + px)) + 2] * k;
+                        r_sum += input.data[(3 * (py * input.width + px)) + 0] * k;
+                        g_sum += input.data[(3 * (py * input.width + px)) + 1] * k;
+                        b_sum += input.data[(3 * (py * input.width + px)) + 2] * k;
                     }
                 }
             }
-            output->data[(3 * (y * input->width + x)) + 0] = clamp(abs(r_sum));
-            output->data[(3 * (y * input->width + x)) + 1] = clamp(abs(g_sum));
-            output->data[(3 * (y * input->width + x)) + 2] = clamp(abs(b_sum));
+            output.data[(3 * (y * input.width + x)) + 0] = clamp(abs(r_sum));
+            output.data[(3 * (y * input.width + x)) + 1] = clamp(abs(g_sum));
+            output.data[(3 * (y * input.width + x)) + 2] = clamp(abs(b_sum));
         }
     }
 }
+
 std::vector<int> conv1d(std::vector<int>& a, std::vector<int>& b)
 {
     std::vector<int> result(a.size() + b.size() - 1, 0);
@@ -169,6 +173,94 @@ std::vector<int> conv1d(std::vector<int>& a, std::vector<int>& b)
     return result;
 }
 
+void fftw_conv2d(const PPMImage* input, PPMImage* output) {
+    int H = input->height;
+    int W = input->width;
+    int KH = KERNEL_HEIGHT;
+    int KW = KERNEL_WIDTH;
+
+    int outH = H;
+    int outW = W;
+
+    int fftH = H + KH - 1;
+    int fftW = W + KW - 1;
+
+    output->width = outW;
+    output->height = outH;
+    output->max_val = 255;
+    output->data = (unsigned char*)malloc(outW * outH * 3);
+
+    // Process 3 channels independently
+    for (int c = 0; c < 3; ++c) {
+        // Allocate FFTW arrays
+        fftw_complex *A = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * fftH * (fftW / 2 + 1));
+        fftw_complex *B = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * fftH * (fftW / 2 + 1));
+        fftw_complex *C = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * fftH * (fftW / 2 + 1));
+
+        double *imgPadded = (double*)fftw_malloc(sizeof(double) * fftH * fftW);
+        double *kerPadded = (double*)fftw_malloc(sizeof(double) * fftH * fftW);
+        double *result = (double*)fftw_malloc(sizeof(double) * fftH * fftW);
+
+        // Zero-pad both arrays
+        memset(imgPadded, 0, sizeof(double) * fftH * fftW);
+        memset(kerPadded, 0, sizeof(double) * fftH * fftW);
+
+        // Copy image channel to padded input
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+                imgPadded[y * fftW + x] = (double)input->data[3 * (y * W + x) + c];
+
+        // Copy kernel (flipped for true convolution)
+        for (int y = 0; y < KH; ++y)
+            for (int x = 0; x < KW; ++x)
+                kerPadded[y * fftW + x] = k2d[KH - 1 - y][KW - 1 - x];
+
+        // Plan FFTs
+        fftw_plan planA = fftw_plan_dft_r2c_2d(fftH, fftW, imgPadded, A, FFTW_ESTIMATE);
+        fftw_plan planB = fftw_plan_dft_r2c_2d(fftH, fftW, kerPadded, B, FFTW_ESTIMATE);
+        fftw_plan planC = fftw_plan_dft_c2r_2d(fftH, fftW, C, result, FFTW_ESTIMATE);
+
+        // Execute FFTs
+        fftw_execute(planA);
+        fftw_execute(planB);
+
+        // Multiply frequency-domain terms (complex multiply)
+        int nfreq = fftH * (fftW / 2 + 1);
+        for (int i = 0; i < nfreq; ++i) {
+            float a_re = A[i][0], a_im = A[i][1];
+            float b_re = B[i][0], b_im = B[i][1];
+            C[i][0] = a_re * b_re - a_im * b_im;
+            C[i][1] = a_re * b_im + a_im * b_re;
+        }
+
+        // Inverse FFT
+        fftw_execute(planC);
+
+        // Normalize result (FFTW doesn't)
+        for (int i = 0; i < fftH * fftW; ++i)
+            result[i] /= (fftH * fftW);
+
+        // Crop back to original size
+        int yOffset = (KH - 1) / 2;
+        int xOffset = (KW - 1) / 2;
+        for (int y = 0; y < outH; ++y) {
+            for (int x = 0; x < outW; ++x) {
+                float val = result[(y + yOffset) * fftW + (x + xOffset)];
+                if (val < 0) val = 0;
+                if (val > 255) val = 255;
+                output->data[3 * (y * outW + x) + c] = (unsigned char)(val);
+            }
+        }
+
+        // Cleanup
+        fftw_destroy_plan(planA);
+        fftw_destroy_plan(planB);
+        fftw_destroy_plan(planC);
+        fftw_free(A); fftw_free(B); fftw_free(C);
+        fftw_free(imgPadded); fftw_free(kerPadded); fftw_free(result);
+    }
+}
+
 void HandlePNG(const char* input_png, const char* output_png) {
     int width, height, channels;
     unsigned char* img = stbi_load(input_png, &width, &height, &channels, 3);
@@ -177,26 +269,33 @@ void HandlePNG(const char* input_png, const char* output_png) {
         exit(1);
     }
 
-    PPMImage *ppm_img = (PPMImage*)malloc(sizeof(PPMImage));
-    if (!ppm_img) exit(1);
-    ppm_img->width = width;
-    ppm_img->height = height;
-    ppm_img->max_val = 255;
-    ppm_img->data = img;
+    PPMImage ppm_img;
+    ppm_img.width = width;
+    ppm_img.height = height;
+    ppm_img.max_val = 255;
+    ppm_img.data = img;
 
-    PPMImage *out = (PPMImage*)malloc(sizeof(PPMImage));
-    if (!out) exit(1);
-    out->width = width;
-    out->height = height;
-    out->max_val = 255;
-    out->data = (unsigned char*)malloc(width * height * 3);
-
-    conv2d(ppm_img, out);
-
-    if (!stbi_write_png(output_png, out->width, out->height, 3, out->data, out->width * 3)) {
+    PPMImage out;
+    if (pseudo)
+    {
+        std::cout << "running pseudo conv2d\n";
+        out.width = width;
+        out.height = height;
+        out.max_val = 255;
+        out.data = (unsigned char*)malloc(width * height * 3);
+        conv2d(ppm_img, out);
+    }
+    else
+    {
+        std::cout << "running fftw conv2d\n";
+        fftw_conv2d(&ppm_img, &out);
+    }
+    if (!stbi_write_png(output_png, out.width, out.height, 3, out.data, out.width * 3)) {
         std::cerr << "Failed to write PNG: " << stbi_failure_reason() << "\n";
         exit(1);
     }
+    free(out.data);
+    stbi_image_free(img);
 }
 
 void WriteColoredPPM(const char* filename, int width, int height, uint32_t color) {
@@ -223,15 +322,14 @@ void HandlePPM(const char* input_ppm, const char* output_ppm)
 {
     PPMImage* img = read_ppm(input_ppm);
     if (!img) exit(1);
-    PPMImage *out = (PPMImage*)malloc(sizeof(PPMImage));
-    if (!out) exit(1);
-    out->width = img->width;
-    out->height = img->height;
-    out->max_val = 255;
-    out->data = (unsigned char*)malloc(img->width * img->height * 3);
-    if (!out->data) exit(1);
-    conv2d(img, out);
-    write_ppm(output_ppm, out);
+    PPMImage out;
+    out.width = img->width;
+    out.height = img->height;
+    out.max_val = 255;
+    out.data = (unsigned char*)malloc(img->width * img->height * 3);
+    if (!out.data) exit(1);
+    conv2d(*img, out);
+    write_ppm(output_ppm, &out);
 }
 
 using namespace cv;
@@ -349,8 +447,7 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
     }
     cap.release();
 
-    int kD = 3, kH = 3, kW = 3;                         // Kernel size
-    int padD = kD / 2, padH = kH / 2, padW = kW / 2;
+    int padD = KERNEL_DEPTH / 2, padH = KERNEL_HEIGHT / 2, padW = KERNEL_WIDTH / 2;
 
     int D = static_cast<int>(input_frames.size());
     int H = input_frames[0].rows;
@@ -371,9 +468,9 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
         for (int y = padH; y < H - padH; ++y) {
             for (int x = padW; x < W - padW; ++x) {
                 float sum = 0.0f;
-                for (int dz = 0; dz < kD; ++dz)
-                    for (int dy = 0; dy < kH; ++dy)
-                        for (int dx = 0; dx < kW; ++dx)
+                for (int dz = 0; dz < KERNEL_DEPTH; ++dz)
+                    for (int dy = 0; dy < KERNEL_HEIGHT; ++dy)
+                        for (int dx = 0; dx < KERNEL_WIDTH; ++dx)
                         {
                             int tz = z + dz - padD;
                             int ty = y + dy - padH;
@@ -430,8 +527,7 @@ void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
     }
     cap.release();
 
-    int kD = 3, kH = 3, kW = 3;                         // Kernel size
-    int padD = kD / 2, padH = kH / 2, padW = kW / 2;
+    int padD = KERNEL_DEPTH / 2, padH = KERNEL_HEIGHT / 2, padW = KERNEL_WIDTH / 2;
 
     int D = static_cast<int>(input_frames.size());
     int H = input_frames[0].rows;
@@ -453,9 +549,9 @@ void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
         for (int y = padH; y < H - padH; ++y) {
             for (int x = padW; x < W - padW; ++x) {
                 Vec3f sum(0, 0, 0);
-                for (int dz = 0; dz < kD; ++dz)
-                    for (int dy = 0; dy < kH; ++dy)
-                        for (int dx = 0; dx < kW; ++dx)
+                for (int dz = 0; dz < KERNEL_DEPTH; ++dz)
+                    for (int dy = 0; dy < KERNEL_HEIGHT; ++dy)
+                        for (int dx = 0; dx < KERNEL_WIDTH; ++dx)
                         {
                             int tz = z + dz - padD;
                             int ty = y + dy - padH;
@@ -504,9 +600,8 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
 
     if (verbose) std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
 
-    int kD = 3, kH = 3, kW = 3;
-    int padH = kH / 2, padW = kW / 2;
-    int padD = kD / 2;
+    int padH = KERNEL_HEIGHT / 2, padW = KERNEL_WIDTH / 2;
+    int padD = KERNEL_DEPTH / 2;
 
     // Prepare VideoWriter
     VideoWriter writer(output_path, VideoWriter::fourcc('m','p','4','v'), fps, Size(width, height), true);
@@ -532,11 +627,11 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
         buffer.push_back(frame_f);
 
         // Wait until we have enough frames for the convolution
-        if (buffer.size() < kD) continue;
+        if (buffer.size() < KERNEL_DEPTH) continue;
 
         // Convolve the middle frame
         Mat out = Mat::zeros(height, width, CV_32FC3);
-        int mid = kD / 2;
+        int mid = KERNEL_DEPTH / 2;
 
         
 #ifdef _OPENMP
@@ -545,9 +640,9 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
         for (int y = padH; y < height - padH; ++y) {
             for (int x = padW; x < width - padW; ++x) {
                 Vec3f sum(0,0,0);
-                for (int dz = 0; dz < kD; ++dz)
-                    for (int dy = 0; dy < kH; ++dy)
-                        for (int dx = 0; dx < kW; ++dx)
+                for (int dz = 0; dz < KERNEL_DEPTH; ++dz)
+                    for (int dy = 0; dy < KERNEL_HEIGHT; ++dy)
+                        for (int dx = 0; dx < KERNEL_WIDTH; ++dx)
                         {
                             int ty = y + dy - padH;
                             int tx = x + dx - padW;
@@ -576,30 +671,114 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
     if (verbose) std::cout << "Output saved to " << output_path << "\n";
 }
 
+void fftw()
+{
+    double *in;
+    fftw_complex *out;
+    int N = 16;
+    in = (double*) fftw_malloc(sizeof(double) * N);
+    in[0] = 1.0;
+    out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+    fftw_plan p = fftw_plan_dft_r2c_1d(N, in, out, FFTW_ESTIMATE);
+
+    fftw_execute(p);
+
+    fftw_destroy_plan(p);
+
+    for (int i = 0; i < N; i++) {
+        std::cout << "out[" << i << "] = " << out[i][0] << " + " << out[i][1] << "i\n";
+    }
+
+    fftw_free(in);
+    fftw_free(out);
+}
+
+void usage(const char* prog_name)
+{
+    std::cout << "Usage: " << prog_name << " <input image> <output image> [options]\n";
+    std::cout << "Supported input/output formats: .ppm, .png, .mp4\n";
+    std::cout << "Options:\n";
+    std::cout << "  -pseudo       Use pseudo convolution (spatial domain) instead of FFTW\n";
+    std::cout << "  -verbose      Enable verbose output\n";
+}
+
 int main(int argc, char* argv[])
 {
 #ifdef _OPENMP
     std::cout << "OpenMP is enabled.\n";
 #endif
 
-    if (argc != 3) 
+    const char* input_path = NULL;
+    const char* output_path = NULL;
+    int i = 1;
+    while (i < argc)
     {
-        std::cout << "Usage: " << argv[0] << " <input image> <output image>\n";
+        if (strcmp(argv[i], "-i") == 0)
+        {
+            i++;
+            if (i < argc)
+            {
+                input_path = argv[i];
+            }
+            else
+            {
+                std::cerr << "Error: Missing input file after -i\n";
+                return 1;
+            }
+        }
+        else if (strcmp(argv[i], "-o") == 0)
+        {
+            i++;
+            if (i < argc)
+            {
+                output_path = argv[i];
+            }
+            else
+            {
+                std::cerr << "Error: Missing output file after -o\n";
+                return 1;
+            }
+        }
+        else if (strcmp(argv[i], "-pseudo") == 0)
+        {
+            pseudo = true;
+        }
+        else if (strcmp(argv[i], "-verbose") == 0)
+        {
+            verbose = true;
+        }
+        else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--h") == 0 || strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-help") == 0)
+        {
+            usage(argv[0]);
+            return 0;
+        }
+        else 
+        {
+            std::cerr << "Unknown argument: " << argv[i] << "\n";
+            usage(argv[0]);
+            return 1;
+        }
+        i++;
+    }
+    if (input_path == NULL || output_path == NULL)
+    {
+        std::cerr << "Error: Input and output file paths are required.\n";
+        usage(argv[0]);
         return 1;
     }
 
-    const char* extension = strrchr(argv[1], '.');
+    const char* extension = strrchr(input_path, '.');
     if (strcmp(extension, ".ppm") == 0)
     {
-        HandlePPM(argv[1], argv[2]);
+        HandlePPM(input_path, output_path);
     }
     else if (strcmp(extension, ".png") == 0) 
     {
-        HandlePNG(argv[1], argv[2]);
+        HandlePNG(input_path, output_path);
     }
     else if (strcmp(extension, ".mp4") == 0)
     {
-        std::string out_arg = argv[2];
+        std::string out_arg = output_path;
         size_t dot = out_arg.rfind('.');
         std::string base = (dot == std::string::npos) ? out_arg : out_arg.substr(0, dot);
         std::string ext = (dot == std::string::npos) ? std::string() : out_arg.substr(dot);
@@ -610,18 +789,18 @@ int main(int argc, char* argv[])
 
         std::cout << "---------------------------------------------------------------\n";
         std::cout << "Running 2D per-frame convolution -> " << out_2d << "\n";
-        HandleMP4_2D(argv[1], out_2d.c_str());
+        HandleMP4_2D(input_path, out_2d.c_str());
         std::cout << "---------------------------------------------------------------\n";
         
         std::cout << "---------------------------------------------------------------\n";
         std::cout << "Running 3D temporal convolution (grayscale) -> " << out_3d_gray << "\n";
-        HandleMP4_3D(argv[1], out_3d_gray.c_str());
+        HandleMP4_3D(input_path, out_3d_gray.c_str());
         std::cout << "---------------------------------------------------------------\n";
         
         std::cout << "---------------------------------------------------------------\n";
         std::cout << "Running 3D temporal convolution (RGB) -> " << out_3d_rgb << "\n";
-        // HandleMP4_3D_RGB(argv[1], out_3d_rgb.c_str());
-        HandleMP4_3D_RGB_Sliding(argv[1], out_3d_rgb.c_str());
+        // HandleMP4_3D_RGB(input_path, out_3d_rgb.c_str());
+        HandleMP4_3D_RGB_Sliding(input_path, out_3d_rgb.c_str());
         std::cout << "---------------------------------------------------------------\n";
     }
     else 
