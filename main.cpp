@@ -10,7 +10,10 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <omp.h>
+#include <deque>
 
+bool verbose = false;
 clock_t Clocker;
 void StartClock()
 {
@@ -130,7 +133,7 @@ int (*k2d)[3] = KERNEL2D_EDGE_DETECTOR;
 void conv2d(PPMImage* input, PPMImage* output)
 {
 #ifdef _OPENMP
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for
 #endif
     for (int y = 0; y < input->height; y++) {
         for (int x = 0; x < input->width; x++) {
@@ -289,7 +292,7 @@ void HandleMP4_2D(const char* input_path, const char* output_path)
     double fps = cap.get(CAP_PROP_FPS);
     int total_frames = static_cast<int>(cap.get(CAP_PROP_FRAME_COUNT));
 
-    std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
+    if (verbose) std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
 
     VideoWriter writer(output_path, VideoWriter::fourcc('m', 'p', '4', 'v'), fps, Size(width, height));
 
@@ -299,10 +302,10 @@ void HandleMP4_2D(const char* input_path, const char* output_path)
     }
 
     cv::Mat frame, filtered;
-    std::cout << "Processing video...\n";
+    if (verbose) std::cout << "Processing video...\n";
 
     StartClock();
-    std::cout << "clock started\n";
+    if (verbose) std::cout << "clock started\n";
     while (true) {
         cap >> frame;
         if (frame.empty())
@@ -316,7 +319,7 @@ void HandleMP4_2D(const char* input_path, const char* output_path)
 
     cap.release();
     writer.release();
-    std::cout << "Output saved to " << output_path << "\n";
+    if (verbose) std::cout << "Output saved to " << output_path << "\n";
 }
 
 void HandleMP4_3D(const char* input_path, const char* output_path)
@@ -332,8 +335,8 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
     int fps = static_cast<int>(cap.get(CAP_PROP_FPS));
     int total_frames = static_cast<int>(cap.get(CAP_PROP_FRAME_COUNT));
 
-    std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
-    std::cout << "Loading frames...\n";
+    if (verbose) std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
+    if (verbose) std::cout << "Loading frames...\n";
     std::vector<Mat> input_frames;
     for (int i = 0; i < total_frames; ++i) {
         Mat frame;
@@ -357,12 +360,12 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
     for (int t = 0; t < D; ++t)
         output_frames[t] = Mat::zeros(H, W, CV_32F);
 
-    std::cout << "Applying 3D convolution...\n";
+    if (verbose) std::cout << "Applying 3D convolution...\n";
     // 3D convolution
     StartClock();
-    std::cout << "clock started\n";
+    if (verbose) std::cout << "clock started\n";
 #ifdef _OPENMP
-    #pragma omp parallel for collapse(3)
+    #pragma omp parallel for
 #endif
     for (int z = padD; z < D - padD; ++z) {
         for (int y = padH; y < H - padH; ++y) {
@@ -383,7 +386,7 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
     }
     EndClock(true);
 
-    std::cout << "Writing output video...\n";
+    if (verbose) std::cout << "Writing output video...\n";
     // Convert float frames to 8-bit for VideoWriter
     VideoWriter writer(output_path, VideoWriter::fourcc('m','p','4','v'), fps, Size(width, height), false);
     if (!writer.isOpened()) {
@@ -397,7 +400,7 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
         writer.write(f8u);
     }
 
-    std::cout << "Output saved to " << output_path << "\n";
+    if (verbose) std::cout << "Output saved to " << output_path << "\n";
 }
 
 void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
@@ -413,8 +416,8 @@ void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
     int fps = static_cast<int>(cap.get(CAP_PROP_FPS));
     int total_frames = static_cast<int>(cap.get(CAP_PROP_FRAME_COUNT));
 
-    std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
-    std::cout << "Loading frames...\n";
+    if (verbose) std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
+    if (verbose) std::cout << "Loading frames...\n";
     // Load all frames (color)
     std::vector<Mat> input_frames;
     for (int i = 0; i < total_frames; ++i) {
@@ -439,12 +442,12 @@ void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
     for (int t = 0; t < D; ++t)
         output_frames[t] = Mat::zeros(H, W, CV_8UC3);
 
-    std::cout << "Applying 3D convolution on RGB frames...\n";
+    if (verbose) std::cout << "Applying 3D convolution on RGB frames...\n";
     // 3D convolution
     StartClock();
-    std::cout << "clock started\n";
+    if (verbose) std::cout << "clock started\n";
 #ifdef _OPENMP
-    #pragma omp parallel for collapse(3)
+    #pragma omp parallel for
 #endif
     for (int z = padD; z < D - padD; ++z) {
         for (int y = padH; y < H - padH; ++y) {
@@ -469,7 +472,7 @@ void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
     }
     EndClock(true);
 
-    std::cout << "Writing output video...\n";
+    if (verbose) std::cout << "Writing output video...\n";
     // Write output video
     VideoWriter writer(output_path, VideoWriter::fourcc('m','p','4','v'), fps, Size(width, height), true);
     if (!writer.isOpened()) {
@@ -483,7 +486,7 @@ void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
         writer.write(f8u);
     }
 
-    std::cout << "Output saved to " << output_path << "\n";
+    if (verbose) std::cout << "Output saved to " << output_path << "\n";
 }
 
 void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
@@ -499,7 +502,7 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
     int fps = static_cast<int>(cap.get(CAP_PROP_FPS));
     int total_frames = static_cast<int>(cap.get(CAP_PROP_FRAME_COUNT));
 
-    std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
+    if (verbose) std::cout << "Video properties: " << width << "x" << height << " at " << fps << " FPS, total frames: " << total_frames << "\n";
 
     int kD = 3, kH = 3, kW = 3;
     int padH = kH / 2, padW = kW / 2;
@@ -514,12 +517,12 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
 
     std::deque<Mat> buffer;  // sliding window of input frames
 
-    std::cout << "Processing video with sliding 3D convolution...\n";
+    if (verbose) std::cout << "Processing video with sliding 3D convolution...\n";
 
     int frame_idx = 0;
     Mat frame;
     StartClock();
-    std::cout << "clock started\n";
+    if (verbose) std::cout << "clock started\n";
     while (true) {
         cap >> frame;
         if (frame.empty()) break;
@@ -537,7 +540,7 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
 
         
 #ifdef _OPENMP
-        #pragma omp parallel for collapse(2)
+        #pragma omp parallel for
 #endif
         for (int y = padH; y < height - padH; ++y) {
             for (int x = padW; x < width - padW; ++x) {
@@ -570,10 +573,14 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
     
     cap.release();
     writer.release();
-    std::cout << "Output saved to " << output_path << "\n";
+    if (verbose) std::cout << "Output saved to " << output_path << "\n";
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
+#ifdef _OPENMP
+    std::cout << "OpenMP is enabled.\n";
+#endif
 
     if (argc != 3) 
     {
