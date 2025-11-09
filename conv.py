@@ -17,8 +17,8 @@ kernel3d = np.array([
 ], dtype=np.float32)
 
 # Open input and output
-input_path = "sample.mp4"
-output_path = "output.mp4"
+input_path = "./input_videos/sample.mp4"
+output_path = "./output_videos/output_py.mp4"
 
 cap = cv2.VideoCapture(input_path)
 fps = cap.get(cv2.CAP_PROP_FPS)
