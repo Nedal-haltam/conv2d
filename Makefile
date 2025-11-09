@@ -10,13 +10,9 @@ all-vids: build run-all-videos
 all-imgs: build run-all-images
 
 build: main.cpp
-	rm -rf build/
-	mkdir -p build/
 	g++ main.cpp -O3 -o build/main $(LIBS)
 
 run-all-images:
-	rm -rf ./output_images/
-	mkdir -p ./output_images/
 	./build/main -i ./input_images/lena.png -o ./output_images/lena.png
 	./build/main -i ./input_images/lena.ppm -o ./output_images/lena.ppm
 	./build/main -i ./input_images/tree.png -o ./output_images/tree.png
@@ -24,7 +20,16 @@ run-all-images:
 	./build/main -i ./input_images/tree.ppm -o ./output_images/tree.ppm
 	./build/main -i ./input_images/humananflower.png -o ./output_images/humananflower.png
 
+c-ffi:
+	g++ -o ./build/libcconv3d.so conv3d.cpp -shared $(LIBS) -fPIC -O3
+
 run-all-videos:
+	./build/main -i ./input_videos/sample.mp4 -o ./output_videos/sample.mp4
+
+clean:
+	rm -rf build/
+	mkdir -p build/
+	rm -rf ./output_images/
+	mkdir -p ./output_images/
 	rm -rf ./output_videos/
 	mkdir -p ./output_videos/
-	./build/main -i ./input_videos/sample.mp4 -o ./output_videos/sample.mp4
