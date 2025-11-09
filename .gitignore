@@ -1,6 +1,6 @@
-*.png
-*.ppm
-*.exe
 /output_videos
 /input_videos
+/output_images
+/input_images
 /.vscode
+/build
