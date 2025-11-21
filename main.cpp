@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <vector>
 #define STB_IMAGE_IMPLEMENTATION
@@ -10,9 +9,11 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <omp.h>
 #include <deque>
 #include "fftw-3.3.10/fftw-3.3.10/api/fftw3.h"
+
+#define CONV3D_IMPLEMENTATION
+#include "conv3d.hpp"
 
 bool pseudo = false;
 bool verbose = false;
@@ -115,12 +116,6 @@ unsigned char clamp(int val) {
     return (unsigned char)val;
 }
 
-float clampf(float val) {
-    if (val < 0.0f) return 0.0f;
-    if (val > 255.0f) return 255.0f;
-    return val;
-}
-
 #define KERNEL_WIDTH 3
 #define KERNEL_HEIGHT 3
 #define KERNEL_DEPTH 3
@@ -141,9 +136,6 @@ int (*k2d)[3] = KERNEL2D_EDGE_DETECTOR;
 
 void conv2d(PPMImage& input, PPMImage& output)
 {
-#ifdef _OPENMP
-    #pragma omp parallel for
-#endif
     for (int y = 0; y < input.height; y++) {
         for (int x = 0; x < input.width; x++) {
             int r_sum = 0, g_sum = 0, b_sum = 0;
@@ -363,25 +355,26 @@ void conv2d(const cv::Mat& input, cv::Mat& output) {
 }
 
 // Example 3D kernel (temporal depth = 3)
-int KERNEL3D_EDGE_DETECTOR[3][3][3] = {
+float KERNEL3D_EDGE_DETECTOR[3][3][3] = {
     {
-        {-1, -2, -1},
-        {-2, -4, -2},
-        {-1, -2, -1}
+        {-1.0f, -2.0f, -1.0f},
+        {-2.0f, -4.0f, -2.0f},
+        {-1.0f, -2.0f, -1.0f}
     },
     {
-        {0, 0, 0},
-        {0, 0, 0},
-        {0, 0, 0}
+        {0.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f}
     },
     {
-        {1, 2, 1},
-        {2, 4, 2},
-        {1, 2, 1}
+        {1.0f, 2.0f, 1.0f},
+        {2.0f, 4.0f, 2.0f},
+        {1.0f, 2.0f, 1.0f}
     }
 };
 
-int (*k3d)[3][3] = KERNEL3D_EDGE_DETECTOR;
+float (*k3d)[3][3] = KERNEL3D_EDGE_DETECTOR;
+float* k3dptr = &KERNEL3D_EDGE_DETECTOR[0][0][0];
 
 void HandleMP4_2D(const char* input_path, const char* output_path)
 {
@@ -467,9 +460,6 @@ void HandleMP4_3D(const char* input_path, const char* output_path)
     // 3D convolution
     StartClock();
     if (verbose) std::cout << "clock started\n";
-#ifdef _OPENMP
-    #pragma omp parallel for
-#endif
     for (int z = padD; z < D - padD; ++z) {
         for (int y = padH; y < H - padH; ++y) {
             for (int x = padW; x < W - padW; ++x) {
@@ -548,9 +538,6 @@ void HandleMP4_3D_RGB(const char* input_path, const char* output_path)
     // 3D convolution
     StartClock();
     if (verbose) std::cout << "clock started\n";
-#ifdef _OPENMP
-    #pragma omp parallel for
-#endif
     for (int z = padD; z < D - padD; ++z) {
         for (int y = padH; y < H - padH; ++y) {
             for (int x = padW; x < W - padW; ++x) {
@@ -615,7 +602,7 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
         std::cout << "Failed to open output video\n";
         exit(1);
     }
-
+    unsigned char* bufferptr = (unsigned char*)malloc(width * height * 3 * KERNEL_DEPTH * sizeof(float));
     std::deque<Mat> buffer;  // sliding window of input frames
 
     if (verbose) std::cout << "Processing video with sliding 3D convolution...\n";
@@ -639,10 +626,11 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
         Mat out = Mat::zeros(height, width, CV_32FC3);
         int mid = KERNEL_DEPTH / 2;
 
-        
-#ifdef _OPENMP
-        #pragma omp parallel for
-#endif
+        // int NOT = 4;
+        // for (int i = 0; i < KERNEL_DEPTH; ++i)
+        //     memcpy(bufferptr + i * width * height * 3 * sizeof(float), buffer[i].data, width * height * 3 * sizeof(float));
+        // conv3d((void*)bufferptr, k3dptr, (void*)out.data, width, height, NOT);
+
         for (int y = padH; y < height - padH; ++y) {
             for (int x = padW; x < width - padW; ++x) {
                 Vec3f sum(0,0,0);
@@ -675,6 +663,7 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
     }
     EndClock(true);
     
+    free(bufferptr);
     cap.release();
     writer.release();
     if (verbose) std::cout << "Output saved to " << output_path << "\n";
@@ -713,10 +702,6 @@ void usage(const char* prog_name)
 
 int main(int argc, char* argv[])
 {
-#ifdef _OPENMP
-    std::cout << "OpenMP is enabled.\n";
-#endif
-
     const char* input_path = NULL;
     const char* output_path = NULL;
     int i = 1;
@@ -796,15 +781,15 @@ int main(int argc, char* argv[])
         std::string out_3d_gray = base + "_3d_gray" + ext;
         std::string out_3d_rgb = base + "_3d_rgb" + ext;
 
-        std::cout << "---------------------------------------------------------------\n";
-        std::cout << "Running 2D per-frame convolution -> " << out_2d << "\n";
-        HandleMP4_2D(input_path, out_2d.c_str());
-        std::cout << "---------------------------------------------------------------\n";
+        // std::cout << "---------------------------------------------------------------\n";
+        // std::cout << "Running 2D per-frame convolution -> " << out_2d << "\n";
+        // HandleMP4_2D(input_path, out_2d.c_str());
+        // std::cout << "---------------------------------------------------------------\n";
         
-        std::cout << "---------------------------------------------------------------\n";
-        std::cout << "Running 3D temporal convolution (grayscale) -> " << out_3d_gray << "\n";
-        HandleMP4_3D(input_path, out_3d_gray.c_str());
-        std::cout << "---------------------------------------------------------------\n";
+        // std::cout << "---------------------------------------------------------------\n";
+        // std::cout << "Running 3D temporal convolution (grayscale) -> " << out_3d_gray << "\n";
+        // HandleMP4_3D(input_path, out_3d_gray.c_str());
+        // std::cout << "---------------------------------------------------------------\n";
         
         std::cout << "---------------------------------------------------------------\n";
         std::cout << "Running 3D temporal convolution (RGB) -> " << out_3d_rgb << "\n";

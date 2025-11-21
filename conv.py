@@ -5,7 +5,7 @@ import numpy as np
 import numpy.ctypeslib as npct
 from scipy.ndimage import convolve
 
-FFI : bool = False
+FFI : bool = True
 
 def convy(frames : list, k3d) -> bool:
     stacked = np.stack(frames, axis=0)  # shape (3, h, w, 3)
@@ -36,7 +36,8 @@ def convffi(conv3d_func, frames : list, k3d_flat) -> bool:
         k3d_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         npct.as_ctypes(out_frame),
         width,
-        height
+        height,
+        1
     )
 
     final_frame = out_frame.astype(np.uint8)
