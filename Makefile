@@ -10,7 +10,7 @@ all-vids: build run-all-videos
 all-imgs: build run-all-images
 
 build: main.cpp
-	g++ main.cpp -fopenmp -O3 -o build/main $(LIBS)
+	g++ main.cpp -O3 -o build/main $(LIBS)
 
 run-all-images:
 	./build/main -i ./input_images/lena.png -o ./output_images/lena.png
@@ -21,7 +21,7 @@ run-all-images:
 	./build/main -i ./input_images/humananflower.png -o ./output_images/humananflower.png
 
 c-ffi:
-	g++ -o ./build/libcconv3d.so conv3d.cpp -shared $(LIBS) -fPIC -fopenmp -O3
+	g++ -o ./build/libcconv3d.so conv3d.cpp -shared -fPIC -O3 -march=native
 
 run-all-videos:
 	./build/main -i ./input_videos/sample.mp4 -o ./output_videos/sample.mp4

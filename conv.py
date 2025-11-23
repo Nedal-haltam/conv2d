@@ -1,11 +1,58 @@
+from __future__ import annotations
 import time
 import cv2
 import ctypes
 import numpy as np
 import numpy.ctypeslib as npct
 from scipy.ndimage import convolve
+from concurrent.futures import ThreadPoolExecutor, Future
+from typing import List, Tuple
+import numpy.typing as npt
 
 FFI : bool = True
+CONV_FUNC_NAME = 'conv3d_3p'
+DLL_PATH = './build/libcconv3d.so'
+
+NUM_THREADS = 12
+
+def worker_conv(
+    idx: int,
+    conv3d_func: ctypes.CDLL,
+    all_frames: List[npt.NDArray[np.float32]],
+    kernel3d,
+    kernel_flat,
+    width: int,
+    height: int
+) -> npt.NDArray[np.uint8]:
+    frames = [
+        all_frames[idx + 0],
+        all_frames[idx + 1],
+        all_frames[idx + 2],
+    ]
+
+    if FFI:
+        out_frame = np.empty((height, width, 3), dtype=np.float32)
+
+        p_prev = frames[0].ctypes.data_as(ctypes.c_voidp)
+        p_curr = frames[1].ctypes.data_as(ctypes.c_voidp)
+        p_next = frames[2].ctypes.data_as(ctypes.c_voidp)
+        p_kern = kernel_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        p_out  = out_frame.ctypes.data_as(ctypes.c_voidp)
+
+        conv3d_func(
+            p_prev,
+            p_curr,
+            p_next,
+            p_kern,
+            p_out,
+            width,
+            height
+        )
+        return out_frame.astype(np.uint8)
+    else:
+        print("not implemented")
+        exit(1)
+
 
 def convy(frames : list, k3d) -> bool:
     stacked = np.stack(frames, axis=0)  # shape (3, h, w, 3)
@@ -53,16 +100,26 @@ def convffi(conv3d_func, frames : list, k3d_flat) -> bool:
 
 def main():
     global cap, writer
-
-    lib = ctypes.CDLL("./build/libcconv3d.so")
-    conv3d_func = lib['conv3d']
-    conv3d_func.argtypes = [
-        ctypes.c_voidp,
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_voidp,
-        ctypes.c_int,
-        ctypes.c_int]
-    conv3d_func.restype = None
+    lib = ctypes.CDLL(DLL_PATH)
+    conv3d_func = lib[CONV_FUNC_NAME]
+    if CONV_FUNC_NAME == 'conv3d':
+        conv3d_func.argtypes = [
+            ctypes.c_voidp,
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.c_voidp,
+            ctypes.c_int,
+            ctypes.c_int]
+        conv3d_func.restype = None
+    elif CONV_FUNC_NAME == 'conv3d_3p':
+        conv3d_func.argtypes = [
+            ctypes.c_voidp,
+            ctypes.c_voidp,
+            ctypes.c_voidp,
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.c_voidp,
+            ctypes.c_int,
+            ctypes.c_int]
+        conv3d_func.restype = None
 
     kernel3d = np.array([
         [[-1, -2, -1],
@@ -75,6 +132,7 @@ def main():
         [2, 4, 2],
         [1, 2, 1]]
     ], dtype=np.float32)
+    kernel3d_flat = kernel3d.flatten()
 
     input_path = "./input_videos/sample.mp4"
     output_path = "./output_videos/output_py.mp4"
@@ -89,29 +147,55 @@ def main():
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
 
-    frames = []
-    for _ in range(3):
-        ret, f = cap.read()
-        if not ret:
-            break
-        frames.append(f.astype(np.float32))
-        # frames.append(f.astype(np.float32) / 255.0)
 
     start_time = time.time()
     print(f'FFI : {FFI}')
     print(f"Processing video (W:{w}, H:{h}, FPS:{fps})...")
 
-    kernel3d_flat = kernel3d.flatten()
+
+    frames = []
+    for _ in range(2):
+        ret, f = cap.read()
+        if not ret:
+            break
+        frames.append(f.astype(np.float32))
+        # frames.append(f.astype(np.float32) / 255.0)
+    if len(frames) < 2:
+        print("Not enough frames to process.")
+        return
     while True:
-        if len(frames) < 3:
+
+        future_frames: List[npt.NDArray[np.float32]] = []
+        for _ in range(NUM_THREADS):
+            ret, nf = cap.read()
+            if not ret:
+                break
+            future_frames.append(nf.astype(np.float32))
+        if len(future_frames) < NUM_THREADS:
             break
 
-        if FFI:
-            if not convffi(conv3d_func, frames, kernel3d_flat):
-                break
-        else:
-            if not convy(frames, kernel3d):
-                break
+        all_frames = frames + future_frames
+
+        with ThreadPoolExecutor(max_workers=NUM_THREADS) as pool:
+            futures = [
+                pool.submit(
+                    worker_conv,
+                    i,
+                    conv3d_func,
+                    all_frames,
+                    kernel3d,
+                    kernel3d_flat,
+                    w, h
+                )
+                for i in range(NUM_THREADS)
+            ]
+            results = [f.result() for f in futures]
+
+        for i in range(NUM_THREADS):
+            writer.write(results[i])
+        for i in range(NUM_THREADS):
+            frames.pop(0)
+            frames.append(future_frames[i])
 
     print("All frames processed.")
 
