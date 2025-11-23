@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, Future
 from typing import List, Tuple
 import numpy.typing as npt
 
+# FFI : bool = False
 FFI : bool = True
 CONV_FUNC_NAME = 'conv3d_3p'
 DLL_PATH = './build/libcconv3d.so'
@@ -50,8 +51,15 @@ def worker_conv(
         )
         return out_frame.astype(np.uint8)
     else:
-        print("not implemented")
-        exit(1)
+        stacked = np.stack(frames, axis=0)  # shape (3, h, w, 3)
+        out_channels = []
+        for c in range(3):
+            out = convolve(stacked[:, :, :, c], kernel3d, mode='nearest')
+            out_channels.append(out[1])
+
+        out_frame = np.stack(out_channels, axis=2)
+        out_frame = np.clip(out_frame * 255, 0, 255).astype(np.uint8)
+        return out_frame
 
 
 def convy(frames : list, k3d) -> bool:
@@ -158,8 +166,10 @@ def main():
         ret, f = cap.read()
         if not ret:
             break
-        frames.append(f.astype(np.float32))
-        # frames.append(f.astype(np.float32) / 255.0)
+        if FFI:
+            frames.append(f.astype(np.float32))
+        else:
+            frames.append(f.astype(np.float32) / 255.0)
     if len(frames) < 2:
         print("Not enough frames to process.")
         return
@@ -170,7 +180,10 @@ def main():
             ret, nf = cap.read()
             if not ret:
                 break
-            future_frames.append(nf.astype(np.float32))
+            if FFI:
+                future_frames.append(nf.astype(np.float32))
+            else:
+                future_frames.append(nf.astype(np.float32) / 255.0)
         if len(future_frames) < NUM_THREADS:
             break
 
