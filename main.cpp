@@ -10,10 +10,8 @@
 #include <vector>
 #include <cmath>
 #include <deque>
+#include <thread>
 #include "fftw-3.3.10/fftw-3.3.10/api/fftw3.h"
-
-#define CONV3D_IMPLEMENTATION
-#include "conv3d.hpp"
 
 bool pseudo = false;
 bool verbose = false;
@@ -44,6 +42,12 @@ typedef struct {
     unsigned char* data;
 } PPMImage;
 
+float clampf(float val) {
+    if (val < 0.0f) return 0.0f;
+    if (val > 255.0f) return 255.0f;
+    return val;
+}
+
 PPMImage* read_ppm(const char* filename) {
     FILE* fp = fopen(filename, "rb");
     if (!fp) {
@@ -67,13 +71,13 @@ PPMImage* read_ppm(const char* filename) {
     }
     ungetc(c, fp);
 
-    fscanf(fp, "%d %d %d", &img->width, &img->height, &img->max_val);
+    auto ret = fscanf(fp, "%d %d %d", &img->width, &img->height, &img->max_val);
     fgetc(fp);  
 
     int size = img->width * img->height * 3;
     img->data = (unsigned char*)malloc(size);
 
-    fread(img->data, 1, size, fp);
+    ret = fread(img->data, 1, size, fp);
     fclose(fp);
     return img;
 }
@@ -132,21 +136,20 @@ int KERNEL2D_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
     {0, 0, 0},
 };
 
-int (*k2d)[3] = KERNEL2D_EDGE_DETECTOR;
+auto k2d = KERNEL2D_EDGE_DETECTOR;
 
 void conv2d(PPMImage& input, PPMImage& output)
 {
     for (int y = 0; y < input.height; y++) {
         for (int x = 0; x < input.width; x++) {
             int r_sum = 0, g_sum = 0, b_sum = 0;
-            for (int ky = 0; ky < 3; ky++) {
-                for (int kx = 0; kx < 3; kx++) {
+            for (int ky = 0; ky < KERNEL_HEIGHT; ky++) {
+                for (int kx = 0; kx < KERNEL_WIDTH; kx++) {
                     int px = x + kx - 1; 
                     int py = y + ky - 1;
                     if (!(px < 0 || px >= input.width || py < 0 || py >= input.height))
                     {
                         int k = k2d[ky][kx];
-                        // int k = KERNEL_IDENTITY[ky][kx];
                         r_sum += input.data[(3 * (py * input.width + px)) + 0] * k;
                         g_sum += input.data[(3 * (py * input.width + px)) + 1] * k;
                         b_sum += input.data[(3 * (py * input.width + px)) + 2] * k;
@@ -338,8 +341,8 @@ void conv2d(const cv::Mat& input, cv::Mat& output) {
     for (int y = 1; y < input.rows - 1; y++) {
         for (int x = 1; x < input.cols - 1; x++) {
             int r_sum = 0, g_sum = 0, b_sum = 0;
-            for (int ky = 0; ky < 3; ky++) {
-                for (int kx = 0; kx < 3; kx++) {
+            for (int ky = 0; ky < KERNEL_HEIGHT; ky++) {
+                for (int kx = 0; kx < KERNEL_WIDTH; kx++) {
                     Vec3b pixel = input.at<Vec3b>(y + ky - 1, x + kx - 1);
                     int k = k2d[ky][kx];
                     r_sum += pixel[2] * k;
@@ -347,15 +350,14 @@ void conv2d(const cv::Mat& input, cv::Mat& output) {
                     b_sum += pixel[0] * k;
                 }
             }
-            output.at<Vec3b>(y, x)[2] = std::clamp(std::abs(r_sum), 0, 255);
-            output.at<Vec3b>(y, x)[1] = std::clamp(std::abs(g_sum), 0, 255);
             output.at<Vec3b>(y, x)[0] = std::clamp(std::abs(b_sum), 0, 255);
+            output.at<Vec3b>(y, x)[1] = std::clamp(std::abs(g_sum), 0, 255);
+            output.at<Vec3b>(y, x)[2] = std::clamp(std::abs(r_sum), 0, 255);
         }
     }
 }
 
-// Example 3D kernel (temporal depth = 3)
-float KERNEL3D_EDGE_DETECTOR[3][3][3] = {
+float KERNEL3D_EDGE_DETECTOR[KERNEL_DEPTH][KERNEL_HEIGHT][KERNEL_WIDTH] = {
     {
         {-1.0f, -2.0f, -1.0f},
         {-2.0f, -4.0f, -2.0f},
@@ -373,7 +375,7 @@ float KERNEL3D_EDGE_DETECTOR[3][3][3] = {
     }
 };
 
-float (*k3d)[3][3] = KERNEL3D_EDGE_DETECTOR;
+auto k3d = KERNEL3D_EDGE_DETECTOR;
 float* k3dptr = &KERNEL3D_EDGE_DETECTOR[0][0][0];
 
 void HandleMP4_2D(const char* input_path, const char* output_path)
@@ -602,8 +604,6 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
         std::cout << "Failed to open output video\n";
         exit(1);
     }
-    unsigned char* bufferptr = (unsigned char*)malloc(width * height * 3 * KERNEL_DEPTH * sizeof(float));
-    std::deque<Mat> buffer;  // sliding window of input frames
 
     if (verbose) std::cout << "Processing video with sliding 3D convolution...\n";
 
@@ -611,63 +611,100 @@ void HandleMP4_3D_RGB_Sliding(const char* input_path, const char* output_path)
     Mat frame;
     StartClock();
     if (verbose) std::cout << "clock started\n";
-    while (true) {
-        cap >> frame;
-        if (frame.empty()) break;
 
-        Mat frame_f;
-        frame.convertTo(frame_f, CV_32FC3);
-        buffer.push_back(frame_f);
+    int num_threads = std::thread::hardware_concurrency();
+    std::cout << "Detected " << num_threads << " hardware threads.\n";
+    if (num_threads == 0) num_threads = 4;
 
-        // Wait until we have enough frames for the convolution
-        if (buffer.size() < KERNEL_DEPTH) continue;
+    auto worker = [&](int out_index, const std::vector<Mat>& frames, Mat& out)
+    {
+        const Mat& A = frames[out_index];
+        const Mat& B = frames[out_index + 1];
+        const Mat& C = frames[out_index + 2];
 
-        // Convolve the middle frame
-        Mat out = Mat::zeros(height, width, CV_32FC3);
-        int mid = KERNEL_DEPTH / 2;
+        Mat temp = Mat::zeros(height, width, CV_32FC3);
+        const Mat buf[KERNEL_DEPTH] = { A, B, C };
 
-        // int NOT = 4;
-        // for (int i = 0; i < KERNEL_DEPTH; ++i)
-        //     memcpy(bufferptr + i * width * height * 3 * sizeof(float), buffer[i].data, width * height * 3 * sizeof(float));
-        // conv3d((void*)bufferptr, k3dptr, (void*)out.data, width, height, NOT);
-
-        for (int y = padH; y < height - padH; ++y) {
-            for (int x = padW; x < width - padW; ++x) {
+        for (int y = padH; y < height - padH; y++)
+        {
+            for (int x = padW; x < width - padW; x++)
+            {
                 Vec3f sum(0,0,0);
-                for (int dz = 0; dz < KERNEL_DEPTH; ++dz)
-                    for (int dy = 0; dy < KERNEL_HEIGHT; ++dy)
-                        for (int dx = 0; dx < KERNEL_WIDTH; ++dx)
+                for (int dz = 0; dz < KERNEL_DEPTH; dz++)
+                    for (int dy = 0; dy < KERNEL_HEIGHT; dy++)
+                        for (int dx = 0; dx < KERNEL_WIDTH; dx++)
                         {
                             int ty = y + dy - padH;
                             int tx = x + dx - padW;
-                            Vec3f pixel = buffer[dz].at<Vec3f>(ty, tx);
+
+                            Vec3f p = buf[dz].at<Vec3f>(ty, tx);
                             float k = k3d[dz][dy][dx];
-                            sum[0] += pixel[0] * k;
-                            sum[1] += pixel[1] * k;
-                            sum[2] += pixel[2] * k;
+
+                            sum[0] += p[0] * k;
+                            sum[1] += p[1] * k;
+                            sum[2] += p[2] * k;
                         }
                 sum[0] = clampf(sum[0]);
                 sum[1] = clampf(sum[1]);
                 sum[2] = clampf(sum[2]);
-                out.at<Vec3f>(y, x) = sum;
+
+                temp.at<Vec3f>(y, x) = sum;
             }
         }
-        // Convert to 8-bit and write
-        Mat out8u;
-        out.convertTo(out8u, CV_8UC3, 1.0, 0);
-        writer.write(out8u);
-        
-        // Remove the oldest frame
-        buffer.pop_front();
-        frame_idx++;
+        out = temp;
+    };
+
+    std::vector<Mat> frame_buffer;  
+    frame_buffer.reserve(num_threads + 2);
+    for (int i = 0; i < num_threads + 2; i++)
+    {
+        Mat f;
+        cap >> f;
+        if (f.empty()) break;
+        Mat f32;
+        f.convertTo(f32, CV_32FC3);
+        frame_buffer.push_back(f32);
     }
+
+    int base = 0;
+    while (frame_buffer.size() >= KERNEL_DEPTH)
+    {
+        int batch_size = std::min(num_threads, (int)frame_buffer.size() - 2);
+
+        std::vector<Mat> outputs(batch_size);
+        std::vector<std::thread> threads;
+        for (int t = 0; t < batch_size; t++)
+        {
+            threads.emplace_back(worker, t, std::ref(frame_buffer), std::ref(outputs[t]));
+        }
+        for (auto& th : threads) th.join();
+
+        for (int t = 0; t < batch_size; t++)
+        {
+            Mat out8;
+            outputs[t].convertTo(out8, CV_8UC3);
+            writer.write(out8);
+        }
+        for (int i = 0; i < batch_size; i++)
+            frame_buffer.erase(frame_buffer.begin());
+        for (int i = 0; i < batch_size; i++)
+        {
+            Mat f;
+            cap >> f;
+            if (f.empty()) break;
+            Mat f32;
+            f.convertTo(f32, CV_32FC3);
+            frame_buffer.push_back(f32);
+        }
+    }
+
     EndClock(true);
     
-    free(bufferptr);
     cap.release();
     writer.release();
     if (verbose) std::cout << "Output saved to " << output_path << "\n";
 }
+
 
 void fftw()
 {
