@@ -10,7 +10,7 @@ all-vids: build run-all-videos
 all-imgs: build run-all-images
 
 build: main.cpp
-	g++ main.cpp -O3 -o build/main $(LIBS)
+	g++ main.cpp -O3 -march=native -o build/main $(LIBS)
 
 run-all-images:
 	./build/main -i ./input_images/lena.png -o ./output_images/lena.png
