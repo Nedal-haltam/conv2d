@@ -13,12 +13,12 @@ build: main.cpp
 	g++ main.cpp -O3 -march=native -o build/main $(LIBS)
 
 run-all-images:
-	./build/main -i ./input_images/lena.png -o ./output_images/lena.png
+# 	./build/main -i ./input_images/lena.png -o ./output_images/lena.png
+# 	./build/main -i ./input_images/tree.png -o ./output_images/tree.png
+# 	./build/main -i ./input_images/humananflower.png -o ./output_images/humananflower.png
 	./build/main -i ./input_images/lena.ppm -o ./output_images/lena.ppm
-	./build/main -i ./input_images/tree.png -o ./output_images/tree.png
 	./build/main -i ./input_images/tree.ppm -o ./output_images/tree.ppm
-	./build/main -i ./input_images/tree.ppm -o ./output_images/tree.ppm
-	./build/main -i ./input_images/humananflower.png -o ./output_images/humananflower.png
+	./build/main -i ./input_images/humananflower.ppm -o ./output_images/humananflower.ppm
 
 c-ffi:
 	g++ -o ./build/libcconv3d.so conv3d.cpp -shared -fPIC -O3 -march=native

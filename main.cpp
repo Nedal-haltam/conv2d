@@ -125,9 +125,9 @@ unsigned char clamp(int val) {
 #define KERNEL_DEPTH 3
 
 int KERNEL2D_EDGE_DETECTOR[KERNEL_HEIGHT][KERNEL_WIDTH] = {
-    {-1, 0, 1},
-    {-2, 0, 2},
-    {-1, 0, 1},
+    {-1, -2, -1},
+    { 0,  0,  0},
+    { 1,  2,  1},
 };
 
 int KERNEL2D_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
@@ -138,15 +138,58 @@ int KERNEL2D_IDENTITY[KERNEL_HEIGHT][KERNEL_WIDTH] = {
 
 auto k2d = KERNEL2D_EDGE_DETECTOR;
 
+void PadImage(PPMImage& img, int padH, int padW)
+{
+#if 0
+    // pad with zeros on the border
+    int newWidth = img.width + 2 * padW;
+    int newHeight = img.height + 2 * padH;
+    unsigned char* newData = (unsigned char*)malloc(newWidth * newHeight * 3);
+    memset(newData, 0, newWidth * newHeight * 3);
+    for (int y = 0; y < img.height; y++) {
+        for (int x = 0; x < img.width; x++) {
+            for (int c = 0; c < 3; c++) {
+                newData[3 * ((y + padH) * newWidth + (x + padW)) + c] = img.data[3 * (y * img.width + x) + c];
+            }
+        }
+    }
+#else
+    int newWidth = img.width + 2 * padW;
+    int newHeight = img.height + 2 * padH;
+    unsigned char* newData = (unsigned char*)malloc(newWidth * newHeight * 3);
+    for (int y = 0; y < newHeight; y++) {
+        for (int x = 0; x < newWidth; x++) {
+            int srcX = std::clamp(x - padW, 0, img.width - 1);
+            int srcY = std::clamp(y - padH, 0, img.height - 1);
+            for (int c = 0; c < 3; c++) {
+                newData[3 * (y * newWidth + x) + c] = img.data[3 * (srcY * img.width + srcX) + c];
+            }
+        }
+    }
+    free(img.data);
+    img.data = newData;
+    img.width = newWidth;
+    img.height = newHeight;
+#endif
+}
+
 void conv2d(PPMImage& input, PPMImage& output)
 {
-    for (int y = 0; y < input.height; y++) {
-        for (int x = 0; x < input.width; x++) {
+    int padH = KERNEL_HEIGHT / 2;
+    int padW = KERNEL_WIDTH / 2;
+    PadImage(input, padH, padW);
+    output.width = input.width;
+    output.height = input.height;
+    free(output.data);
+    output.data = (unsigned char*)malloc(output.width * output.height * 3);
+    memset(output.data, 0, output.width * output.height * 3);
+    for (int y = padH; y < input.height - padH; y++) {
+        for (int x = padW; x < input.width - padW; x++) {
             int r_sum = 0, g_sum = 0, b_sum = 0;
             for (int ky = 0; ky < KERNEL_HEIGHT; ky++) {
                 for (int kx = 0; kx < KERNEL_WIDTH; kx++) {
-                    int px = x + kx - 1; 
-                    int py = y + ky - 1;
+                    int px = x + kx - padW;
+                    int py = y + ky - padH;
                     if (!(px < 0 || px >= input.width || py < 0 || py >= input.height))
                     {
                         int k = k2d[ky][kx];
@@ -156,9 +199,9 @@ void conv2d(PPMImage& input, PPMImage& output)
                     }
                 }
             }
-            output.data[(3 * (y * input.width + x)) + 0] = clamp(abs(r_sum));
-            output.data[(3 * (y * input.width + x)) + 1] = clamp(abs(g_sum));
-            output.data[(3 * (y * input.width + x)) + 2] = clamp(abs(b_sum));
+            output.data[(3 * ((y - padH) * input.width + (x - padW))) + 0] = clamp(abs(r_sum));
+            output.data[(3 * ((y - padH) * input.width + (x - padW))) + 1] = clamp(abs(g_sum));
+            output.data[(3 * ((y - padH) * input.width + (x - padW))) + 2] = clamp(abs(b_sum));
         }
     }
 }
