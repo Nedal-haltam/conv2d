@@ -204,6 +204,22 @@ void conv2d(PPMImage& input, PPMImage& output)
             output.data[(3 * ((y - padH) * input.width + (x - padW))) + 2] = clamp(abs(b_sum));
         }
     }
+    // unpad the output PPMImage
+    PPMImage unpadded;
+    unpadded.width = output.width - 2 * padW;
+    unpadded.height = output.height - 2 * padH;
+    unpadded.max_val = output.max_val;
+    unpadded.data = (unsigned char*)malloc(unpadded.width * unpadded.height * 3);
+    for (int y = 0; y < unpadded.height; y++) {
+        for (int x = 0; x < unpadded.width; x++) {
+            for (int c = 0; c < 3; c++) {
+                unpadded.data[3 * (y * unpadded.width + x) + c] =
+                    output.data[3 * ((y) * output.width + (x)) + c];
+            }
+        }
+    }
+    free(output.data);
+    output = unpadded;
 }
 
 std::vector<int> conv1d(std::vector<int>& a, std::vector<int>& b)
